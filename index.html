@@ -174,9 +174,6 @@
     tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     tileAttr: 'Tiles &copy; Esri',
     gpsMaxAge:    1000,
-    // Speed threshold (mph) below which we prefer compass over GPS heading.
-    // GPS heading is unreliable / null when slow or stationary.
-    gpsHeadingMinSpeed: 3,
     panReturnSec: 5,
     arrowPx:      48,
   };
@@ -232,16 +229,15 @@
 
   /* ═══════════════════════════════════════════════════
      HEADING STATE
-     We blend two sources:
-       gpsHeading     — from Geolocation API (only valid when moving)
-       compassHeading — from DeviceOrientationEvent (always available)
-     The active source is chosen per-frame based on speed.
+     Source: GPS heading from Geolocation API only.
+     When GPS heading is null (parked / slow), we hold the last
+     known good value so the map doesn't snap back to north.
+     Tesla's browser does not expose DeviceOrientationEvent.
   ═══════════════════════════════════════════════════ */
-  let gpsHeading     = null;   // degrees, from GPS (null when slow/stopped)
-  let compassHeading = null;   // degrees, from device compass
+  let lastGoodHeading = 0;    // last non-null GPS heading; never goes null
   let currentSpeedMph = 0;
-  let displayHeading = 0;      // smoothed value actually applied to DOM
-  let targetHeading  = 0;      // what we're chasing toward
+  let displayHeading  = 0;    // smoothed value actually applied to DOM
+  let targetHeading   = 0;    // what we're chasing toward
 
   /* Shortest-arc lerp */
   function lerpAngle(cur, tgt, alpha) {
@@ -252,83 +248,26 @@
   }
 
   /* ═══════════════════════════════════════════════════
-     DEVICE ORIENTATION (compass)
-     Works on Tesla's Chromium browser.
-     alpha = compass heading in degrees (0=North, clockwise).
-     Note: on some browsers alpha is relative to arbitrary origin —
-     webkitCompassHeading is the true-north version on Safari/iOS.
-     Chromium on Linux (Tesla) uses alpha as magnetic north directly.
-  ═══════════════════════════════════════════════════ */
-  let orientationSource = 'none';
-
-  function handleOrientation(evt) {
-    // webkitCompassHeading: iOS/Safari true-north (preferred)
-    if (evt.webkitCompassHeading != null && !isNaN(evt.webkitCompassHeading)) {
-      compassHeading = evt.webkitCompassHeading;
-      orientationSource = 'webkitCompass';
-      return;
-    }
-    // alpha: Chromium — 0 at startup, increases clockwise.
-    // On Tesla's Linux Chromium this IS magnetic north if the device
-    // has a magnetometer registered.
-    if (evt.alpha != null && !isNaN(evt.alpha)) {
-      // alpha increases counter-clockwise on some devices; correct if needed
-      compassHeading = (360 - evt.alpha) % 360;
-      orientationSource = 'alpha';
-    }
-  }
-
-  function startCompass() {
-    if (!window.DeviceOrientationEvent) {
-      document.getElementById('debug-row').textContent += ' | no DeviceOrientation';
-      return;
-    }
-    // iOS 13+ requires permission
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission()
-        .then(state => {
-          if (state === 'granted')
-            window.addEventListener('deviceorientation', handleOrientation, true);
-        })
-        .catch(() => {});
-    } else {
-      window.addEventListener('deviceorientation', handleOrientation, true);
-    }
-  }
-
-  /* ═══════════════════════════════════════════════════
      rAF ROTATION LOOP
-     Picks best heading source each frame, lerps toward it,
-     applies to map wrapper and compass SVG.
-     Both get rotate(-heading): map so heading=up, compass so N tracks north.
+     Uses lastGoodHeading as target.  Updated by GPS whenever
+     heading is non-null.  Holds last known value when null.
+     Map wrapper and compass both rotate by -heading.
   ═══════════════════════════════════════════════════ */
   function rotationLoop() {
-    // Choose source: GPS heading when moving fast enough, compass otherwise
-    let src = 'none';
-    if (currentSpeedMph >= CFG.gpsHeadingMinSpeed && gpsHeading != null) {
-      targetHeading = gpsHeading;
-      src = 'gps';
-    } else if (compassHeading != null) {
-      targetHeading = compassHeading;
-      src = 'compass';
-    }
-    // else targetHeading stays at last known value
-
-    // Smooth toward target — alpha 0.08 per frame ≈ comfortable car rotation
+    targetHeading  = lastGoodHeading;
     displayHeading = lerpAngle(displayHeading, targetHeading, 0.08);
 
-    // Apply — both map and compass rotate by -heading
     const r = -displayHeading;
     const wrapper = document.getElementById('map-wrapper');
     const compass = document.getElementById('compass-svg');
     if (wrapper) wrapper.style.transform = `translate(-50%,-50%) rotate(${r}deg)`;
     if (compass) compass.style.transform = `rotate(${r}deg)`;
 
-    // Debug line
+    // Debug line — shows raw GPS heading so you can see what the car provides
+    const rawHdg = lastGoodHeading;
     document.getElementById('debug-row').textContent =
-      `src:${src} | gps_hdg:${gpsHeading != null ? Math.round(gpsHeading)+'°' : 'null'}` +
-      ` | compass:${compassHeading != null ? Math.round(compassHeading)+'°' : 'null'}` +
-      ` | speed:${currentSpeedMph.toFixed(1)}mph | display:${Math.round(displayHeading)}°`;
+      `gps_hdg:${rawHdg.toFixed(1)}° | speed:${currentSpeedMph.toFixed(1)}mph` +
+      ` | display:${displayHeading.toFixed(1)}°`;
 
     requestAnimationFrame(rotationLoop);
   }
@@ -355,8 +294,12 @@
     currentLat = latitude; currentLng = longitude;
     currentSpeedMph = mpsToMph(speed);
 
-    // Store GPS heading (may be null when slow)
-    gpsHeading = (heading != null && !isNaN(heading)) ? heading : null;
+    // Update heading — hold last good value when GPS heading is null
+    // (GPS heading goes null when parked; we keep the last known direction)
+    if (heading != null && !isNaN(heading)) {
+      lastGoodHeading = heading;
+    }
+    // If heading is null, lastGoodHeading keeps its previous value — no snap
 
     arrowMarker.setLatLng([latitude, longitude]);
     accuracyCircle.setLatLng([latitude, longitude]);
@@ -456,8 +399,7 @@
      BOOT
   ═══════════════════════════════════════════════════ */
   addZoomButtons();
-  startCompass();
-  startGPS();
+  startGPS();  // compass removed — Tesla browser has no magnetometer API
   requestAnimationFrame(rotationLoop);
   setTimeout(() => { map.invalidateSize(); updateArrowScale(); }, 300);
   window.addEventListener('resize', () => map.invalidateSize());
