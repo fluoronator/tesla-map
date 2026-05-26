@@ -16,12 +16,10 @@
       overflow: hidden;
       background: #000;
       font-family: 'Courier New', monospace;
-      touch-action: none; /* let Leaflet own all touch events */
+      touch-action: none;
     }
 
-    /* ── Map wrapper ───────────────────────────────────────────────
-       Oversized so corners never show during rotation.
-       We rotate this element so heading = screen-up.            */
+    /* Oversized wrapper — rotated so heading = screen-up */
     #map-wrapper {
       position: fixed;
       width: 200vmax;
@@ -34,17 +32,17 @@
 
     #map { width: 100%; height: 100%; }
 
-    /* ── Location arrow ────────────────────────────────────────────
-       Fixed to screen-centre, NOT inside the map element.
-       This makes it zoom-proof and lets us rotate it independently. */
-    #location-arrow {
-      position: fixed;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%) rotate(0deg);
-      /* rotation updated via JS; no CSS transition so it snaps with map */
-      width: 0; height: 0;          /* zero-size container */
-      pointer-events: none;
-      z-index: 500;
+    /* ── Arrow marker styles ────────────────────────────────────────
+       The marker lives IN the map so it moves with panning.
+       We use a divIcon and counter-scale its SVG to stay fixed-size. */
+    .arrow-marker-icon {
+      background: none !important;
+      border: none !important;
+    }
+    .arrow-marker-icon svg {
+      /* transform-origin at the anchor point (centre of icon) */
+      transform-origin: 24px 24px;
+      /* counter-scale set by JS on zoom — starts at 1 */
     }
 
     /* ── HUD ───────────────────────────────────────────────────── */
@@ -55,7 +53,6 @@
       display: flex; flex-direction: column; gap: 6px;
       pointer-events: none;
     }
-
     .hud-pill {
       display: inline-flex; align-items: center; gap: 8px;
       background: rgba(0,0,0,0.72);
@@ -86,7 +83,7 @@
     }
     #compass-svg { transition: transform 0.5s ease-out; }
 
-    /* ── Re-centre button (shown while panning) ────────────────── */
+    /* ── Re-centre button ───────────────────────────────────────── */
     #recenter-btn {
       position: fixed; bottom: 90px; right: 18px;
       z-index: 1000;
@@ -96,9 +93,24 @@
       color: #fff; font-size: 22px;
       display: none; align-items: center; justify-content: center;
       cursor: pointer; box-shadow: 0 2px 12px rgba(0,0,0,0.5);
-      backdrop-filter: blur(4px);
+      -webkit-tap-highlight-color: transparent;
     }
     #recenter-btn.visible { display: flex; }
+
+    /* ── Pan banner ─────────────────────────────────────────────── */
+    #pan-banner {
+      position: fixed; bottom: 32px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(0,0,0,0.75);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 20px; padding: 5px 16px;
+      color: rgba(255,255,255,0.7); font-size: 11px;
+      pointer-events: none;
+      opacity: 0; transition: opacity 0.3s;
+      white-space: nowrap;
+    }
+    #pan-banner.visible { opacity: 1; }
 
     /* ── Status bar ─────────────────────────────────────────────── */
     #status-bar {
@@ -120,20 +132,6 @@
     #status-dot.active    { background: #4cd964; }
     #status-dot.error     { background: #ff3b30; }
 
-    /* Panning banner */
-    #pan-banner {
-      position: fixed; bottom: 32px; left: 50%;
-      transform: translateX(-50%);
-      z-index: 1000;
-      background: rgba(0,0,0,0.75);
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 20px; padding: 5px 16px;
-      color: rgba(255,255,255,0.7); font-size: 11px;
-      pointer-events: none;
-      opacity: 0; transition: opacity 0.3s;
-    }
-    #pan-banner.visible { opacity: 1; }
-
     @keyframes pulse {
       0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
     }
@@ -143,24 +141,6 @@
 
   <div id="map-wrapper">
     <div id="map"></div>
-  </div>
-
-  <!-- Fixed-position arrow centred on screen — NOT inside the map -->
-  <div id="location-arrow">
-    <svg width="48" height="48" viewBox="0 0 48 48"
-         style="position:absolute;top:-24px;left:-24px;"
-         xmlns="http://www.w3.org/2000/svg">
-      <!-- Accuracy halo (visual only; real circle is on map) -->
-      <circle cx="24" cy="24" r="11"
-              fill="rgba(30,140,255,0.18)"
-              stroke="rgba(30,140,255,0.5)" stroke-width="1.5"/>
-      <!-- Arrow — tip points UP = direction of travel -->
-      <polygon points="24,5 33,38 24,30 15,38"
-               fill="#1e8cff" stroke="#fff"
-               stroke-width="1.8" stroke-linejoin="round"/>
-      <!-- Centre dot -->
-      <circle cx="24" cy="24" r="3.5" fill="#fff"/>
-    </svg>
   </div>
 
   <!-- HUD -->
@@ -179,7 +159,7 @@
     </div>
   </div>
 
-  <!-- Compass -->
+  <!-- Compass: N marker rotates to show where true north is -->
   <div id="north-arrow">
     <svg id="compass-svg" width="28" height="28" viewBox="0 0 28 28">
       <polygon points="14,2 18,14 14,12 10,14" fill="#ff3b30"/>
@@ -189,7 +169,7 @@
     </svg>
   </div>
 
-  <!-- Re-centre button -->
+  <!-- Re-centre button (shown while panning) -->
   <button id="recenter-btn" title="Return to my location">⊕</button>
 
   <!-- Panning banner -->
@@ -209,32 +189,32 @@
     defaultLat:   34.6059,
     defaultLng:  -86.9833,
     defaultZoom:  17,
-    minZoom:       3,          // allow zooming way out
+    minZoom:       3,
     maxZoom:      20,
     tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     tileAttr: 'Tiles &copy; Esri',
-    gpsMaxAge:    1000,        // ms
-    headingAlpha: 0.25,        // smoothing (higher = more responsive)
-    panReturnSec: 5,           // seconds before auto-return after panning
+    gpsMaxAge:    1000,
+    headingAlpha: 0.25,
+    panReturnSec: 5,
+    arrowPx:      48,    // desired on-screen pixel size of the arrow
   };
 
   /* ═══════════════════════════════════════════════════════════════
      MAP
   ═══════════════════════════════════════════════════════════════ */
   const map = L.map('map', {
-    center:           [CFG.defaultLat, CFG.defaultLng],
-    zoom:              CFG.defaultZoom,
-    minZoom:           CFG.minZoom,
-    maxZoom:           CFG.maxZoom,
-    zoomControl:       false,
-    attributionControl:false,
-    // Enable dragging and touch zoom so the user can explore
-    dragging:          true,
-    scrollWheelZoom:   true,
-    doubleClickZoom:   false,
-    touchZoom:         true,    // pinch zoom
-    bounceAtZoomLimits:false,
-    keyboard:          false,
+    center:            [CFG.defaultLat, CFG.defaultLng],
+    zoom:               CFG.defaultZoom,
+    minZoom:            CFG.minZoom,
+    maxZoom:            CFG.maxZoom,
+    zoomControl:        false,
+    attributionControl: false,
+    dragging:           true,
+    scrollWheelZoom:    true,
+    doubleClickZoom:    false,
+    touchZoom:          true,
+    bounceAtZoomLimits: false,
+    keyboard:           false,
   });
 
   L.tileLayer(CFG.tileUrl, {
@@ -244,8 +224,45 @@
   }).addTo(map);
 
   /* ═══════════════════════════════════════════════════════════════
-     ACCURACY CIRCLE  (on the map, scales with zoom as expected)
+     ARROW MARKER
+     Lives inside the Leaflet map so it moves with panning/zooming
+     just like any other marker. But the inner SVG is counter-scaled
+     on every zoom event so it stays a fixed pixel size on screen.
+
+     The arrow SVG tip points UP (north in SVG space).
+     Because the map wrapper is rotated -heading degrees, "up" on
+     screen IS the heading direction — so no extra rotation needed
+     on the marker itself.
   ═══════════════════════════════════════════════════════════════ */
+  const ARROW_SVG = `
+    <svg id="arrow-svg" width="${CFG.arrowPx}" height="${CFG.arrowPx}"
+         viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg"
+         style="transform-origin:24px 24px; display:block;">
+      <circle cx="24" cy="24" r="12"
+              fill="rgba(30,140,255,0.15)"
+              stroke="rgba(30,140,255,0.45)" stroke-width="1.5"/>
+      <polygon points="24,5 33,38 24,30 15,38"
+               fill="#1e8cff" stroke="#fff"
+               stroke-width="1.8" stroke-linejoin="round"/>
+      <circle cx="24" cy="24" r="3.5" fill="#fff"/>
+    </svg>`;
+
+  function makeArrowIcon() {
+    return L.divIcon({
+      className:  'arrow-marker-icon',
+      iconSize:   [CFG.arrowPx, CFG.arrowPx],
+      iconAnchor: [CFG.arrowPx / 2, CFG.arrowPx / 2],
+      html:       ARROW_SVG,
+    });
+  }
+
+  const arrowMarker = L.marker([CFG.defaultLat, CFG.defaultLng], {
+    icon:        makeArrowIcon(),
+    interactive: false,
+    zIndexOffset: 1000,
+  }).addTo(map);
+
+  /* Accuracy circle — lives on the map, scales normally with zoom */
   const accuracyCircle = L.circle([CFG.defaultLat, CFG.defaultLng], {
     radius: 20,
     color: '#1e8cff', fillColor: '#1e8cff',
@@ -253,7 +270,29 @@
     interactive: false,
   }).addTo(map);
 
-  /* We do NOT add a Leaflet marker — the arrow is a fixed screen element */
+  /* ── Counter-scale the arrow SVG so it stays constant pixel size ──
+     Leaflet scales the entire map pane when zooming (via CSS transform).
+     We read that scale from the map pane's style and invert it on the
+     arrow SVG so the net visual size is always CFG.arrowPx pixels.    */
+  function updateArrowScale() {
+    const svg = document.getElementById('arrow-svg');
+    if (!svg) return;
+
+    // Get Leaflet's current pane transform scale
+    const pane = map.getPanes().markerPane;
+    const style = window.getComputedStyle(pane);
+    const matrix = new DOMMatrix(style.transform);
+    // matrix.a is the X scale factor
+    const leafletScale = matrix.a || 1;
+
+    // Counter-scale: if Leaflet zoomed the pane in by 2×, we scale down by 0.5×
+    const counterScale = 1 / leafletScale;
+    svg.style.transform = `scale(${counterScale})`;
+  }
+
+  map.on('zoom zoomend zoomstart move', updateArrowScale);
+  // Also update immediately after tiles render
+  map.on('load', updateArrowScale);
 
   /* ═══════════════════════════════════════════════════════════════
      STATE
@@ -266,7 +305,6 @@
   let isPanning       = false;
   let panReturnTimer  = null;
   let panCountdownInterval = null;
-  let watchId         = null;
 
   /* ═══════════════════════════════════════════════════════════════
      HELPERS
@@ -282,7 +320,6 @@
     return d[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
   }
 
-  /* Shortest-arc heading smoothing */
   function lerpHeading(current, target, alpha) {
     let diff = target - current;
     while (diff >  180) diff -= 360;
@@ -291,28 +328,23 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════
-     ARROW + MAP ROTATION
-     - Map wrapper rotates so heading points UP
-     - Arrow (fixed screen centre) rotates so tip points in heading dir
-     - Compass counter-rotates to always show true north
+     ROTATION
+     Map wrapper:  rotate(-heading) so your heading points screen-up.
+     Arrow SVG:    no heading rotation needed — "up" in SVG = screen-up
+                   because the map wrapper already handles it.
+     Compass:      rotate(+heading) so the N marker points to true north.
+                   The map rotated -heading, so compass needs +heading
+                   to stay pointing at real north.
   ═══════════════════════════════════════════════════════════════ */
   function applyRotation(heading) {
-    // Map rotates opposite to heading so heading = screen-up
+    // Rotate map so travel direction = screen-up
     el('map-wrapper').style.transform =
       `translate(-50%, -50%) rotate(${-heading}deg)`;
 
-    // Arrow: tip points in travel direction = heading degrees clockwise from north
-    // Since the map is rotated -heading, and we want the arrow to point "up"
-    // (which visually IS the heading direction), the arrow just points straight up (0deg).
-    // BUT — we want the arrow to always point screen-up regardless of map rotation,
-    // so we counter-rotate it by the same amount the map rotated.
-    // Net: arrow is always pointing straight up on screen = always pointing heading direction. ✓
-    el('location-arrow').style.transform =
-      `translate(-50%, -50%) rotate(0deg)`;
-    // (Arrow is already pointing up in SVG; map rotation makes "up" = heading)
-
-    // Compass: rotates opposite so N marker tracks true north
-    el('compass-svg').style.transform = `rotate(${-heading}deg)`;
+    // Compass: N marker must point to TRUE north on screen.
+    // The screen has been rotated -heading, so to make N point up (north),
+    // we rotate the compass SVG by +heading degrees to compensate.
+    el('compass-svg').style.transform = `rotate(${heading}deg)`;
   }
 
   /* ═══════════════════════════════════════════════════════════════
@@ -333,7 +365,7 @@
     el('pan-countdown').textContent = secs;
     panCountdownInterval = setInterval(() => {
       secs--;
-      el('pan-countdown').textContent = secs;
+      el('pan-countdown').textContent = Math.max(0, secs);
       if (secs <= 0) clearInterval(panCountdownInterval);
     }, 1000);
     panReturnTimer = setTimeout(returnToLocation, CFG.panReturnSec * 1000);
@@ -350,28 +382,12 @@
     });
   }
 
-  /* Listen for any user-initiated map movement */
-  map.on('dragstart touchstart', () => {
-    // Only enter pan mode if user actually drags (not GPS-driven pan)
-    enterPanMode();
-  });
+  // Distinguish user drags from programmatic moves:
+  // Leaflet fires 'dragstart' only for user-initiated drags.
+  map.on('dragstart', enterPanMode);
+  map.on('drag',      resetPanTimer);
 
-  map.on('drag', () => {
-    resetPanTimer();
-  });
-
-  /* Re-centre button */
   el('recenter-btn').addEventListener('click', returnToLocation);
-
-  /* ═══════════════════════════════════════════════════════════════
-     UPDATE MAP to GPS position (only when not panning)
-  ═══════════════════════════════════════════════════════════════ */
-  function centerOnPosition(lat, lng, zoom) {
-    if (isPanning) return;   // user is exploring — don't interrupt
-    map.setView([lat, lng], zoom ?? map.getZoom(), {
-      animate: !firstFix, duration: 0.4,
-    });
-  }
 
   /* ═══════════════════════════════════════════════════════════════
      GPS HANDLER
@@ -382,12 +398,18 @@
     currentLat = latitude;
     currentLng = longitude;
 
-    // Accuracy circle (always on map, scales with zoom)
+    // Move marker and accuracy circle (always — even while panning,
+    // so the arrow shows where you actually are on the panned map)
+    arrowMarker.setLatLng([latitude, longitude]);
     accuracyCircle.setLatLng([latitude, longitude]);
     accuracyCircle.setRadius(accuracy ?? 20);
 
-    // Center map (skipped while panning)
-    centerOnPosition(latitude, longitude, firstFix ? CFG.defaultZoom : undefined);
+    // Only re-center the VIEW when not panning
+    if (!isPanning) {
+      map.setView([latitude, longitude],
+        firstFix ? CFG.defaultZoom : map.getZoom(),
+        { animate: !firstFix, duration: 0.4 });
+    }
     firstFix = false;
 
     // Heading smoothing
@@ -396,15 +418,16 @@
     smoothedHeading = lerpHeading(smoothedHeading, rawHeading, CFG.headingAlpha);
 
     applyRotation(smoothedHeading);
+    updateArrowScale();
 
     // HUD
     const mph = mpsToMph(speed);
-    el('hud-speed').textContent   = mph != null ? `${mph} mph` : '0 mph';
-    el('hud-heading').textContent = `${Math.round(rawHeading)}° ${headingToCardinal(rawHeading)}`;
+    el('hud-speed').textContent    = mph != null ? `${mph} mph` : '0 mph';
+    el('hud-heading').textContent  = `${Math.round(rawHeading)}° ${headingToCardinal(rawHeading)}`;
     el('hud-accuracy').textContent = accuracy != null ? `±${Math.round(accuracy)} m` : '—';
     el('status-coords').textContent = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-    el('status-dot').className    = 'active';
-    el('status-text').textContent = 'GPS active';
+    el('status-dot').className     = 'active';
+    el('status-text').textContent  = 'GPS active';
   }
 
   function onError(err) {
@@ -424,16 +447,21 @@
       el('status-text').textContent = 'Geolocation not supported';
       return;
     }
-    // getCurrentPosition first → triggers Tesla permission dialog
     navigator.geolocation.getCurrentPosition(
-      pos => { onPosition(pos); watchId = navigator.geolocation.watchPosition(onPosition, onError, gpsOpts); },
-      err  => { onError(err);   watchId = navigator.geolocation.watchPosition(onPosition, onError, gpsOpts); },
+      pos => {
+        onPosition(pos);
+        navigator.geolocation.watchPosition(onPosition, onError, gpsOpts);
+      },
+      err => {
+        onError(err);
+        navigator.geolocation.watchPosition(onPosition, onError, gpsOpts);
+      },
       gpsOpts
     );
   }
 
   /* ═══════════════════════════════════════════════════════════════
-     ZOOM BUTTONS  (large, touch-friendly)
+     ZOOM BUTTONS
   ═══════════════════════════════════════════════════════════════ */
   function addZoomButtons() {
     const base = `
@@ -462,7 +490,7 @@
   ═══════════════════════════════════════════════════════════════ */
   addZoomButtons();
   startGPS();
-  setTimeout(() => map.invalidateSize(), 300);
+  setTimeout(() => { map.invalidateSize(); updateArrowScale(); }, 300);
   window.addEventListener('resize', () => map.invalidateSize());
   </script>
 </body>
