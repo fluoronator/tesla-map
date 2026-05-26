@@ -6,7 +6,10 @@
   <title>Tesla Map</title>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -27,12 +30,22 @@
     }
     #map { width: 100%; height: 100%; }
 
-    /* Arrow marker */
     .arrow-marker-icon { background: none !important; border: none !important; }
     .arrow-marker-icon svg { transform-origin: 24px 24px; }
-
-    /* POI markers — no default Leaflet chrome */
     .poi-icon { background: none !important; border: none !important; }
+
+    /* Cluster circles — override default style with our own */
+    .marker-cluster {
+      background: rgba(0,0,0,0.55) !important;
+      border: 2px solid rgba(255,255,255,0.35) !important;
+    }
+    .marker-cluster div {
+      background: rgba(255,255,255,0.15) !important;
+      color: #fff !important;
+      font-weight: 600 !important;
+      font-size: 13px !important;
+      font-family: 'Courier New', monospace !important;
+    }
 
     /* ── HUD ──────────────────────────────────────────────── */
     #hud {
@@ -83,13 +96,9 @@
       display: flex; align-items: center; justify-content: center;
       cursor: pointer; backdrop-filter: blur(6px);
       -webkit-tap-highlight-color: transparent;
-      transition: opacity 0.2s, border-color 0.2s;
-      opacity: 0.5;   /* dim = hidden */
+      opacity: 0.45;
     }
-    .cat-btn.active {
-      opacity: 1;
-      border-color: rgba(255,255,255,0.7);
-    }
+    .cat-btn.active { opacity: 1; border-color: rgba(255,255,255,0.7); }
 
     /* ── Re-centre ───────────────────────────────────────── */
     #recenter-btn {
@@ -138,8 +147,7 @@
     #status-dot.active    { background: #4cd964; }
     #status-dot.error     { background: #ff3b30; }
     #debug-row {
-      color: rgba(255,255,200,0.6); font-size: 9px;
-      font-family: monospace;
+      color: rgba(255,255,200,0.6); font-size: 9px; font-family: monospace;
     }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
@@ -162,7 +170,6 @@
 
   <div id="map-wrapper"><div id="map"></div></div>
 
-  <!-- HUD -->
   <div id="hud">
     <div class="hud-pill">
       <span class="label">Speed</span>
@@ -178,7 +185,6 @@
     </div>
   </div>
 
-  <!-- Compass -->
   <div id="north-arrow">
     <svg id="compass-svg" width="28" height="28" viewBox="0 0 28 28">
       <polygon points="14,2 18,14 14,12 10,14" fill="#ff3b30"/>
@@ -188,7 +194,6 @@
     </svg>
   </div>
 
-  <!-- Category toggles — built by JS -->
   <div id="cat-toggles"></div>
 
   <button id="recenter-btn" title="Return to my location">⊕</button>
@@ -217,24 +222,18 @@
     gpsMaxAge:    1000,
     panReturnSec: 5,
     arrowPx:      48,
-    // POIs only shown at this zoom level and above — avoids clutter when zoomed out
-    poiMinZoom:   9,
-    // Path to GeoJSON file — same directory as this HTML file
     geojsonUrl:   'pois.geojson',
+    // Clusters dissolve into individual pins at this zoom level
+    clusterMaxZoom: 11,
   };
 
   /* ═══════════════════════════════════════════════════════
      POI CATEGORY DEFINITIONS
-     icon: function returning SVG string for a 40×40 viewBox pin
   ═══════════════════════════════════════════════════════ */
   const POI_CATEGORIES = {
     bucees: {
-      label: "Buc-ee's",
-      color: '#FFD700',
-      stroke: '#B8960A',
-      visible: true,
-      // Beaver face pin
-      icon: (c, s) => `
+      label: "Buc-ee's", color: '#FFD700', stroke: '#B8960A', visible: true,
+      icon: (c,s) => `
         <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
         <circle cx="20" cy="18" r="10" fill="#fff" opacity="0.95"/>
         <ellipse cx="11" cy="10" rx="4" ry="4.5" fill="${c}" stroke="${s}" stroke-width="0.8"/>
@@ -246,12 +245,8 @@
         <rect x="20.2" y="21" width="2.8" height="3.5" rx="0.7" fill="#fff" stroke="#ddd" stroke-width="0.4"/>`,
     },
     walmart: {
-      label: 'Walmart',
-      color: '#0071CE',
-      stroke: '#004C9A',
-      visible: true,
-      // Shopping cart + star pin
-      icon: (c, s) => `
+      label: 'Walmart', color: '#0071CE', stroke: '#004C9A', visible: true,
+      icon: (c,s) => `
         <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
         <rect x="11" y="16" width="18" height="11" rx="1.8" fill="none" stroke="#fff" stroke-width="1.8"/>
         <path d="M8 12 L11 12 L11 16" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
@@ -260,24 +255,16 @@
         <path d="M20 6 L21.2 9.8 L25.2 9.8 L22 12.1 L23.2 15.9 L20 13.6 L16.8 15.9 L18 12.1 L14.8 9.8 L18.8 9.8 Z" fill="#FFC200"/>`,
     },
     tesla_supercharger: {
-      label: 'Supercharger',
-      color: '#E82127',
-      stroke: '#9E0000',
-      visible: true,
-      // Lightning bolt pin
-      icon: (c, s) => `
+      label: 'Supercharger', color: '#E82127', stroke: '#9E0000', visible: true,
+      icon: (c,s) => `
         <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
         <polygon points="23,5 14,22 20,22 17,35 27,16 21,16" fill="#fff"/>
         <rect x="16.5" y="4" width="7" height="1.8" rx="0.5" fill="#FFD700"/>
         <rect x="19.5" y="4" width="1.5" height="3" fill="#FFD700"/>`,
     },
     carwash: {
-      label: 'Mr. Carwash',
-      color: '#00AEEF',
-      stroke: '#0078A8',
-      visible: true,
-      // Car + water drops pin
-      icon: (c, s) => `
+      label: 'Mr. Carwash', color: '#00AEEF', stroke: '#0078A8', visible: true,
+      icon: (c,s) => `
         <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
         <rect x="8" y="22" width="24" height="9" rx="1.8" fill="#fff"/>
         <path d="M11 22 L13 16 L27 16 L29 22Z" fill="#fff"/>
@@ -289,19 +276,15 @@
         <ellipse cx="26" cy="9" rx="1.6" ry="2.8" fill="#fff" opacity="0.9"/>`,
     },
     rest_stop: {
-      label: 'Rest Stop',
-      color: '#4CAF50',
-      stroke: '#2E7D32',
-      visible: true,
-      // Picnic table + tree pin
-      icon: (c, s) => `
+      label: 'Rest Stop', color: '#4CAF50', stroke: '#2E7D32', visible: true,
+      icon: (c,s) => `
         <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
         <rect x="9" y="20" width="22" height="8" rx="1.5" fill="#fff"/>
         <rect x="11" y="28" width="2" height="5" rx="0.8" fill="#fff" opacity="0.7"/>
         <rect x="27" y="28" width="2" height="5" rx="0.8" fill="#fff" opacity="0.7"/>
         <rect x="6" y="22.5" width="5" height="4" rx="1.2" fill="#fff" opacity="0.85"/>
         <rect x="29" y="22.5" width="5" height="4" rx="1.2" fill="#fff" opacity="0.85"/>
-        <circle cx="20" cy="11" rx="6.5" fill="#2E7D32"/>
+        <circle cx="20" cy="11" r="6.5" fill="#2E7D32"/>
         <circle cx="16" cy="10" r="4" fill="#388E3C"/>
         <circle cx="24" cy="10" r="4" fill="#388E3C"/>
         <circle cx="20" cy="7" r="4" fill="#43A047"/>
@@ -330,9 +313,9 @@
   ═══════════════════════════════════════════════════════ */
   const arrowMarker = L.marker([CFG.defaultLat, CFG.defaultLng], {
     icon: L.divIcon({
-      className:  'arrow-marker-icon',
-      iconSize:   [CFG.arrowPx, CFG.arrowPx],
-      iconAnchor: [CFG.arrowPx/2, CFG.arrowPx/2],
+      className: 'arrow-marker-icon',
+      iconSize:  [CFG.arrowPx, CFG.arrowPx],
+      iconAnchor:[CFG.arrowPx/2, CFG.arrowPx/2],
       html: `<svg id="arrow-svg" width="${CFG.arrowPx}" height="${CFG.arrowPx}"
                viewBox="0 0 48 48" style="transform-origin:24px 24px;display:block;">
                <circle cx="24" cy="24" r="12"
@@ -359,104 +342,141 @@
   map.on('zoom zoomend zoomstart move', updateArrowScale);
 
   /* ═══════════════════════════════════════════════════════
-     POI LAYER
+     POI — SVG icon helpers
   ═══════════════════════════════════════════════════════ */
-
-  // One Leaflet LayerGroup per category — lets us show/hide independently
-  const poiLayers = {};
-  Object.keys(POI_CATEGORIES).forEach(id => {
-    poiLayers[id] = L.layerGroup();
-  });
-
-  // Build SVG pin HTML for a category
-  function makePinHtml(catId, size = 32) {
+  function makePinSvg(catId, size) {
     const cat = POI_CATEGORIES[catId];
     if (!cat) return '';
-    const inner = cat.icon(cat.color, cat.stroke);
-    // viewBox is 0 0 40 40 for the body + 0-40 height for pin tip
-    return `<svg width="${size}" height="${size}"
-               viewBox="0 0 40 40"
+    return `<svg width="${size}" height="${size}" viewBox="0 0 40 40"
                xmlns="http://www.w3.org/2000/svg"
-               style="display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.5))">
-              ${inner}
+               style="display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))">
+              ${cat.icon(cat.color, cat.stroke)}
             </svg>`;
   }
 
   function makePoiIcon(catId) {
-    const size = 32;
+    const sz = 30;
     return L.divIcon({
-      className:  'poi-icon',
-      iconSize:   [size, size],
-      iconAnchor: [size/2, size],   // tip of pin at the location
-      html: makePinHtml(catId, size),
+      className: 'poi-icon',
+      iconSize:  [sz, sz],
+      iconAnchor:[sz/2, sz],
+      html: makePinSvg(catId, sz),
     });
   }
 
-  // Add all features from GeoJSON into their layer groups
+  /* ═══════════════════════════════════════════════════════
+     POI — one MarkerClusterGroup per category
+     Using separate cluster groups means each category
+     clusters independently, and toggling one doesn't
+     affect the others.
+  ═══════════════════════════════════════════════════════ */
+  const clusterGroups = {};
+
+  function buildClusterGroup() {
+    return L.markerClusterGroup({
+      maxClusterRadius: 60,        // px — how close markers must be to cluster
+      disableClusteringAtZoom: CFG.clusterMaxZoom + 1,  // individual pins above this
+      spiderfyOnMaxZoom: true,     // spread overlapping pins on max zoom
+      showCoverageOnHover: false,  // no polygon on hover — cleaner look
+      zoomToBoundsOnClick: true,   // click cluster → zoom in to it
+      chunkedLoading: true,        // add markers in batches — keeps UI responsive
+      chunkInterval: 100,          // ms between batches
+      chunkDelay: 50,              // ms before first batch
+      iconCreateFunction: (cluster) => {
+        // Simple count badge — neutral dark style
+        const count = cluster.getChildCount();
+        const size  = count < 10 ? 32 : count < 100 ? 36 : 40;
+        return L.divIcon({
+          html: `<div style="
+            width:${size}px; height:${size}px; border-radius:50%;
+            background:rgba(20,20,20,0.82);
+            border:2px solid rgba(255,255,255,0.4);
+            display:flex; align-items:center; justify-content:center;
+            color:#fff; font-size:${count < 100 ? 12 : 10}px;
+            font-weight:700; font-family:sans-serif;
+            box-shadow:0 2px 6px rgba(0,0,0,0.6);
+          ">${count}</div>`,
+          className: '',
+          iconSize: [size, size],
+          iconAnchor: [size/2, size/2],
+        });
+      },
+    });
+  }
+
+  // Initialise one cluster group per category
+  Object.keys(POI_CATEGORIES).forEach(id => {
+    clusterGroups[id] = buildClusterGroup();
+  });
+
+  /* ═══════════════════════════════════════════════════════
+     POI — load GeoJSON and populate cluster groups
+     Uses chunked processing so the browser stays
+     responsive while parsing thousands of features.
+  ═══════════════════════════════════════════════════════ */
   function loadPOIs(geojson) {
-    let total = 0;
-    geojson.features.forEach(feature => {
-      const props  = feature.properties;
-      const catId  = props.icon || props.category;
-      const layer  = poiLayers[catId];
-      if (!layer) return;
+    const features = geojson.features || [];
+    const total    = features.length;
+    let   loaded   = 0;
+    const CHUNK    = 500;   // features per batch
 
-      const [lon, lat] = feature.geometry.coordinates;
-      const name = props.name || catId;
+    function processChunk(start) {
+      const end = Math.min(start + CHUNK, total);
+      for (let i = start; i < end; i++) {
+        const feat  = features[i];
+        const props = feat.properties;
+        const catId = props.icon || props.category;
+        const group = clusterGroups[catId];
+        if (!group) continue;
 
-      const marker = L.marker([lat, lon], {
-        icon: makePoiIcon(catId),
-        zIndexOffset: 100,
-      });
+        const [lon, lat] = feat.geometry.coordinates;
+        const marker = L.marker([lat, lon], { icon: makePoiIcon(catId) });
+        marker.bindTooltip(props.name || catId, {
+          className: 'poi-tooltip',
+          direction: 'top',
+          offset:    [0, -26],
+        });
+        group.addLayer(marker);
+        loaded++;
+      }
 
-      // Tooltip shows name on hover / tap
-      marker.bindTooltip(name, {
-        className:  'poi-tooltip',
-        direction:  'top',
-        offset:     [0, -28],
-        permanent:  false,
-        sticky:     false,
-      });
+      // Update status with progress
+      document.getElementById('status-text').textContent =
+        `Loading POIs… ${loaded.toLocaleString()} / ${total.toLocaleString()}`;
 
-      layer.addLayer(marker);
-      total++;
-    });
+      if (end < total) {
+        // Yield to browser between chunks so UI stays responsive
+        setTimeout(() => processChunk(end), 0);
+      } else {
+        // All done — add visible groups to map
+        applyToggleState();
+        document.getElementById('status-text').textContent =
+          `GPS active — ${total.toLocaleString()} POIs loaded`;
+      }
+    }
 
-    document.getElementById('status-text').textContent =
-      `GPS active — ${total.toLocaleString()} POIs loaded`;
-
-    // Add visible layers to map now (respects toggle state and zoom)
-    updatePoiVisibility();
+    processChunk(0);
   }
 
-  // Show/hide POI layers based on toggle state AND current zoom level
-  function updatePoiVisibility() {
-    const zoom = map.getZoom();
-    const show = zoom >= CFG.poiMinZoom;
+  function applyToggleState() {
     Object.keys(POI_CATEGORIES).forEach(id => {
       const cat   = POI_CATEGORIES[id];
-      const layer = poiLayers[id];
-      if (cat.visible && show) {
-        if (!map.hasLayer(layer)) map.addLayer(layer);
+      const group = clusterGroups[id];
+      if (cat.visible) {
+        if (!map.hasLayer(group)) map.addLayer(group);
       } else {
-        if (map.hasLayer(layer))  map.removeLayer(layer);
+        if (map.hasLayer(group))  map.removeLayer(group);
       }
     });
   }
 
-  map.on('zoomend', updatePoiVisibility);
-
-  // Fetch and load the GeoJSON file
   function fetchPOIs() {
     fetch(CFG.geojsonUrl)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(loadPOIs)
       .catch(err => {
         console.warn('POI load failed:', err);
-        // Not fatal — map still works without POIs
+        document.getElementById('status-text').textContent = 'POI file not found';
       });
   }
 
@@ -468,19 +488,19 @@
     Object.entries(POI_CATEGORIES).forEach(([id, cat]) => {
       const btn = document.createElement('button');
       btn.className = 'cat-btn' + (cat.visible ? ' active' : '');
-      btn.title = cat.label;
-      btn.innerHTML = makePinHtml(id, 26);
+      btn.title     = cat.label;
+      btn.innerHTML = makePinSvg(id, 24);
       btn.addEventListener('click', () => {
         cat.visible = !cat.visible;
         btn.classList.toggle('active', cat.visible);
-        updatePoiVisibility();
+        applyToggleState();
       });
       container.appendChild(btn);
     });
   }
 
   /* ═══════════════════════════════════════════════════════
-     HEADING STATE
+     HEADING STATE & rAF ROTATION LOOP
   ═══════════════════════════════════════════════════════ */
   let lastGoodHeading = 0;
   let currentSpeedMph = 0;
@@ -494,23 +514,17 @@
     return cur + alpha * d;
   }
 
-  /* ═══════════════════════════════════════════════════════
-     rAF ROTATION LOOP
-  ═══════════════════════════════════════════════════════ */
   function rotationLoop() {
     targetHeading  = lastGoodHeading;
     displayHeading = lerpAngle(displayHeading, targetHeading, 0.08);
-
     const r = -displayHeading;
     const wrapper = document.getElementById('map-wrapper');
     const compass = document.getElementById('compass-svg');
     if (wrapper) wrapper.style.transform = `translate(-50%,-50%) rotate(${r}deg)`;
     if (compass) compass.style.transform = `rotate(${r}deg)`;
-
     document.getElementById('debug-row').textContent =
       `gps_hdg:${lastGoodHeading.toFixed(1)}° | speed:${currentSpeedMph.toFixed(1)}mph` +
       ` | display:${displayHeading.toFixed(1)}°`;
-
     requestAnimationFrame(rotationLoop);
   }
 
@@ -523,9 +537,7 @@
 
   const el = id => document.getElementById(id);
 
-  function mpsToMph(mps) {
-    return (mps == null || isNaN(mps)) ? 0 : mps * 2.23694;
-  }
+  function mpsToMph(mps) { return (mps == null || isNaN(mps)) ? 0 : mps * 2.23694; }
   function headingToCardinal(deg) {
     const d = ['N','NE','E','SE','S','SW','W','NW'];
     return d[Math.round(((deg%360)+360)%360/45)%8];
@@ -535,33 +547,24 @@
     const { latitude, longitude, accuracy, heading, speed } = pos.coords;
     currentLat = latitude; currentLng = longitude;
     currentSpeedMph = mpsToMph(speed);
-
-    if (heading != null && !isNaN(heading)) {
-      lastGoodHeading = heading;
-    }
+    if (heading != null && !isNaN(heading)) lastGoodHeading = heading;
 
     arrowMarker.setLatLng([latitude, longitude]);
     accuracyCircle.setLatLng([latitude, longitude]);
     accuracyCircle.setRadius(accuracy ?? 20);
 
-    if (!isPanning) {
+    if (!isPanning)
       map.setView([latitude, longitude], firstFix ? CFG.defaultZoom : map.getZoom());
-    }
     firstFix = false;
     updateArrowScale();
 
     el('hud-speed').textContent    = `${Math.round(currentSpeedMph)} mph`;
-    el('hud-heading').textContent  =
-      `${Math.round(targetHeading)}° ${headingToCardinal(targetHeading)}`;
-    el('hud-accuracy').textContent =
-      accuracy != null ? `±${Math.round(accuracy)} m` : '—';
-    el('status-coords').textContent =
-      `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-    el('status-dot').className    = 'active';
-    // Don't overwrite the POI count message once loaded
-    if (el('status-text').textContent === 'Acquiring GPS…') {
+    el('hud-heading').textContent  = `${Math.round(targetHeading)}° ${headingToCardinal(targetHeading)}`;
+    el('hud-accuracy').textContent = accuracy != null ? `±${Math.round(accuracy)} m` : '—';
+    el('status-coords').textContent = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    el('status-dot').className = 'active';
+    if (el('status-text').textContent === 'Acquiring GPS…')
       el('status-text').textContent = 'GPS active';
-    }
   }
 
   function onError(err) {
