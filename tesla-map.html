@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Tesla Map</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Courier New', monospace;
+    }
+
+    /* ── Map wrapper ─────────────────────────────────────────────────
+       We rotate THIS element so the map "points up" in heading direction.
+       It must be larger than the viewport so corners don't show when rotated. */
+    #map-wrapper {
+      position: fixed;
+      /* Oversized: diagonal of viewport so rotating never shows a corner */
+      width: 200vmax;
+      height: 200vmax;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(0deg);
+      transform-origin: center center;
+      transition: transform 0.6s ease-out;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── HUD overlay ─────────────────────────────────────────────── */
+    #hud {
+      position: fixed;
+      top: 0; left: 0;
+      z-index: 1000;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: none;
+    }
+
+    .hud-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,0,0,0.72);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 6px 12px;
+      backdrop-filter: blur(6px);
+      color: #fff;
+      font-size: 13px;
+      line-height: 1.3;
+      width: fit-content;
+    }
+
+    .hud-pill .label {
+      color: rgba(255,255,255,0.45);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .hud-pill .value {
+      font-size: 15px;
+      font-weight: 600;
+      color: #e8f4ff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* North indicator arrow (fixed, always points up = north) */
+    #north-arrow {
+      position: fixed;
+      top: 14px;
+      right: 18px;
+      z-index: 1000;
+      width: 44px;
+      height: 44px;
+      background: rgba(0,0,0,0.72);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 50%;
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    #north-arrow svg {
+      transition: transform 0.6s ease-out;
+    }
+
+    /* Status bar at bottom */
+    #status-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 1000;
+      background: rgba(0,0,0,0.8);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      padding: 8px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: rgba(255,255,255,0.5);
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    #status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #666;
+      display: inline-block;
+      margin-right: 6px;
+      transition: background 0.4s;
+    }
+    #status-dot.acquiring { background: #f5a623; animation: pulse 1s infinite; }
+    #status-dot.active    { background: #4cd964; }
+    #status-dot.error     { background: #ff3b30; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* Location marker arrow (SVG, always points "up" in screen = travel direction) */
+    /* We DON'T rotate the marker; the map rotates around it */
+    .location-arrow {
+      /* no css needed; drawn in SVG via L.divIcon */
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map-wrapper">
+    <div id="map"></div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-pill">
+      <span class="label">Speed</span>
+      <span class="value" id="hud-speed">— mph</span>
+    </div>
+    <div class="hud-pill">
+      <span class="label">Heading</span>
+      <span class="value" id="hud-heading">—°</span>
+    </div>
+    <div class="hud-pill">
+      <span class="label">Accuracy</span>
+      <span class="value" id="hud-accuracy">—</span>
+    </div>
+  </div>
+
+  <!-- North compass -->
+  <div id="north-arrow" title="Points to North">
+    <svg id="compass-svg" width="28" height="28" viewBox="0 0 28 28">
+      <!-- Red = North, Grey = South -->
+      <polygon points="14,2 18,16 14,13 10,16" fill="#ff3b30"/>
+      <polygon points="14,26 18,14 14,15 10,14" fill="#555"/>
+      <text x="14" y="11" text-anchor="middle" fill="#fff" font-size="5" font-family="sans-serif" font-weight="bold">N</text>
+    </svg>
+  </div>
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <span><span id="status-dot" class="acquiring"></span><span id="status-text">Acquiring GPS…</span></span>
+    <span id="status-coords">—</span>
+  </div>
+
+  <script>
+  /* ═══════════════════════════════════════════════════════════════
+     CONFIGURATION
+  ═══════════════════════════════════════════════════════════════ */
+  const CFG = {
+    defaultLat:  34.6059,   // Decatur, AL fallback
+    defaultLng:  -86.9833,
+    defaultZoom: 17,
+    tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    tileAttr: 'Tiles &copy; Esri &mdash; Source: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, AEX, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    // How often we request position (ms). Lower = smoother but more battery.
+    gpsInterval: 1000,
+    // Smoothing factor for heading (0=no smoothing, 1=never changes)
+    headingSmooth: 0.15,
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     MAP INIT
+  ═══════════════════════════════════════════════════════════════ */
+  const map = L.map('map', {
+    center: [CFG.defaultLat, CFG.defaultLng],
+    zoom: CFG.defaultZoom,
+    zoomControl: false,
+    attributionControl: false,
+    // Disable drag/scroll — we control the view programmatically
+    dragging: false,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    touchZoom: false,
+    keyboard: false,
+  });
+
+  L.tileLayer(CFG.tileUrl, {
+    attribution: CFG.tileAttr,
+    maxZoom: 20,
+    // Ask for high-res tiles on retina displays
+    detectRetina: true,
+  }).addTo(map);
+
+  // Small attribution tucked away
+  L.control.attribution({ position: 'bottomright', prefix: false }).addTo(map);
+
+  /* ═══════════════════════════════════════════════════════════════
+     LOCATION MARKER  (arrow SVG, always points screen-up = travel dir)
+  ═══════════════════════════════════════════════════════════════ */
+  function makeArrowIcon() {
+    return L.divIcon({
+      className: '',
+      iconSize:  [40, 40],
+      iconAnchor:[20, 20],
+      html: `
+        <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+          <!-- Accuracy ring (animated, behind arrow) -->
+          <circle cx="20" cy="20" r="10" fill="rgba(30,140,255,0.15)" stroke="rgba(30,140,255,0.4)" stroke-width="1.5"/>
+          <!-- Arrow body pointing UP (north on screen = travel direction because map rotates) -->
+          <polygon points="20,4 28,32 20,26 12,32" fill="#1e8cff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+          <!-- Centre dot -->
+          <circle cx="20" cy="20" r="3" fill="#fff"/>
+        </svg>`,
+    });
+  }
+
+  let marker = L.marker([CFG.defaultLat, CFG.defaultLng], { icon: makeArrowIcon() }).addTo(map);
+
+  /* ═══════════════════════════════════════════════════════════════
+     ACCURACY CIRCLE
+  ═══════════════════════════════════════════════════════════════ */
+  let accuracyCircle = L.circle([CFG.defaultLat, CFG.defaultLng], {
+    radius: 50,
+    color: '#1e8cff',
+    fillColor: '#1e8cff',
+    fillOpacity: 0.06,
+    weight: 1,
+    opacity: 0.4,
+  }).addTo(map);
+
+  /* ═══════════════════════════════════════════════════════════════
+     STATE
+  ═══════════════════════════════════════════════════════════════ */
+  let currentHeading  = 0;   // degrees, 0 = north
+  let smoothedHeading = 0;
+  let watchId         = null;
+  let firstFix        = true;
+
+  /* ═══════════════════════════════════════════════════════════════
+     HUD HELPERS
+  ═══════════════════════════════════════════════════════════════ */
+  const el = id => document.getElementById(id);
+
+  function mpsToMph(mps) {
+    return mps == null ? null : (mps * 2.23694).toFixed(0);
+  }
+
+  function headingToCardinal(deg) {
+    const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+    return dirs[Math.round(deg / 45) % 8];
+  }
+
+  function updateHUD(pos) {
+    const { latitude, longitude, accuracy, heading, speed } = pos.coords;
+
+    const mph = mpsToMph(speed);
+    el('hud-speed').textContent   = mph != null ? `${mph} mph` : '0 mph';
+    el('hud-heading').textContent = heading != null
+      ? `${Math.round(heading)}° ${headingToCardinal(heading)}`
+      : '—';
+    el('hud-accuracy').textContent = accuracy != null
+      ? `±${Math.round(accuracy)} m`
+      : '—';
+    el('status-coords').textContent =
+      `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     HEADING SMOOTHING  (shortest-arc interpolation)
+  ═══════════════════════════════════════════════════════════════ */
+  function smoothHeading(target, current, alpha) {
+    let diff = target - current;
+    // Wrap to [-180, 180] to take the short way around the circle
+    while (diff >  180) diff -= 360;
+    while (diff < -180) diff += 360;
+    return current + alpha * diff;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     APPLY ROTATION  — rotate the map wrapper so heading points UP
+  ═══════════════════════════════════════════════════════════════ */
+  function applyMapRotation(heading) {
+    const wrapper = document.getElementById('map-wrapper');
+    wrapper.style.transform =
+      `translate(-50%, -50%) rotate(${-heading}deg)`;
+
+    // Compass arrow: show where north actually is
+    // North is at -heading degrees relative to screen up
+    const compassSvg = document.getElementById('compass-svg');
+    compassSvg.style.transform = `rotate(${-heading}deg)`;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     GPS SUCCESS HANDLER
+  ═══════════════════════════════════════════════════════════════ */
+  function onPosition(pos) {
+    const { latitude, longitude, accuracy, heading, speed } = pos.coords;
+
+    // Update map center
+    const latlng = [latitude, longitude];
+    marker.setLatLng(latlng);
+    accuracyCircle.setLatLng(latlng);
+    accuracyCircle.setRadius(accuracy || 20);
+    map.setView(latlng, map.getZoom(), { animate: !firstFix, duration: 0.5 });
+    firstFix = false;
+
+    // Heading: prefer GPS heading, fall back to 0
+    const rawHeading = (heading != null && !isNaN(heading)) ? heading : currentHeading;
+    smoothedHeading  = smoothHeading(rawHeading, smoothedHeading, 1 - CFG.headingSmooth);
+    currentHeading   = rawHeading;
+
+    applyMapRotation(smoothedHeading);
+    updateHUD(pos);
+
+    // Status dot — green once we have a good fix
+    el('status-dot').className   = 'active';
+    el('status-text').textContent = 'GPS active';
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     GPS ERROR HANDLER
+  ═══════════════════════════════════════════════════════════════ */
+  function onError(err) {
+    console.warn('GPS error:', err.code, err.message);
+    el('status-dot').className    = 'error';
+    el('status-text').textContent = `GPS error (${err.code}): ${err.message}`;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     START GPS
+     Tesla browser quirk: watchPosition can fail silently on some
+     firmware. Strategy:
+       1) Call getCurrentPosition first — this triggers the permission
+          dialog on Tesla.
+       2) Then start watchPosition for continuous updates.
+  ═══════════════════════════════════════════════════════════════ */
+  const gpsOptions = {
+    enableHighAccuracy: true,
+    timeout:            10000,
+    maximumAge:         CFG.gpsInterval,
+  };
+
+  function startGPS() {
+    if (!navigator.geolocation) {
+      el('status-dot').className    = 'error';
+      el('status-text').textContent = 'Geolocation not supported';
+      return;
+    }
+
+    // Step 1: single shot to trigger permission dialog
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        onPosition(pos);
+        // Step 2: now start the watcher
+        watchId = navigator.geolocation.watchPosition(onPosition, onError, gpsOptions);
+      },
+      err => {
+        onError(err);
+        // Still try watchPosition in case getCurrentPosition failed for other reasons
+        watchId = navigator.geolocation.watchPosition(onPosition, onError, gpsOptions);
+      },
+      gpsOptions
+    );
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     ZOOM CONTROLS  (tap zones — touch-friendly for Tesla)
+  ═══════════════════════════════════════════════════════════════ */
+  function addZoomButtons() {
+    const zoomIn  = document.createElement('button');
+    const zoomOut = document.createElement('button');
+
+    const btnStyle = `
+      position:fixed; right:18px; z-index:1000;
+      width:44px; height:44px; border-radius:8px;
+      background:rgba(0,0,0,0.72); border:1px solid rgba(255,255,255,0.2);
+      color:#fff; font-size:22px; font-weight:300; line-height:1;
+      cursor:pointer; backdrop-filter:blur(6px);
+      display:flex; align-items:center; justify-content:center;
+    `;
+
+    zoomIn.style.cssText  = btnStyle + 'bottom:80px;';
+    zoomOut.style.cssText = btnStyle + 'bottom:130px;';
+    zoomIn.textContent    = '+';
+    zoomOut.textContent   = '−';
+
+    zoomIn.addEventListener('click',  () => map.setZoom(map.getZoom() + 1));
+    zoomOut.addEventListener('click', () => map.setZoom(map.getZoom() - 1));
+
+    document.body.appendChild(zoomIn);
+    document.body.appendChild(zoomOut);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     BOOT
+  ═══════════════════════════════════════════════════════════════ */
+  addZoomButtons();
+  startGPS();
+
+  // Invalidate map size after layout settles (important on Tesla's browser)
+  setTimeout(() => map.invalidateSize(), 300);
+  window.addEventListener('resize', () => map.invalidateSize());
+
+  </script>
+</body>
+</html>
