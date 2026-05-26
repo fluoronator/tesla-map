@@ -27,35 +27,39 @@
     }
     #map { width: 100%; height: 100%; }
 
+    /* Arrow marker */
     .arrow-marker-icon { background: none !important; border: none !important; }
     .arrow-marker-icon svg { transform-origin: 24px 24px; }
 
-    /* HUD */
+    /* POI markers — no default Leaflet chrome */
+    .poi-icon { background: none !important; border: none !important; }
+
+    /* ── HUD ──────────────────────────────────────────────── */
     #hud {
       position: fixed; top: 0; left: 0; z-index: 1000;
-      padding: 14px 18px;
-      display: flex; flex-direction: column; gap: 6px;
+      padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 5px;
       pointer-events: none;
     }
     .hud-pill {
-      display: inline-flex; align-items: center; gap: 8px;
+      display: inline-flex; align-items: center; gap: 7px;
       background: rgba(0,0,0,0.72);
       border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 8px; padding: 6px 12px;
+      border-radius: 8px; padding: 5px 11px;
       backdrop-filter: blur(6px);
-      color: #fff; font-size: 13px; line-height: 1.3;
+      color: #fff; font-size: 12px; line-height: 1.3;
       width: fit-content;
     }
     .hud-pill .label {
-      color: rgba(255,255,255,0.45); font-size: 10px;
+      color: rgba(255,255,255,0.4); font-size: 9px;
       text-transform: uppercase; letter-spacing: 0.08em;
     }
     .hud-pill .value {
-      font-size: 15px; font-weight: 600; color: #e8f4ff;
+      font-size: 14px; font-weight: 600; color: #e8f4ff;
       font-variant-numeric: tabular-nums;
     }
 
-    /* Compass */
+    /* ── Compass ─────────────────────────────────────────── */
     #north-arrow {
       position: fixed; top: 14px; right: 18px; z-index: 1000;
       width: 44px; height: 44px;
@@ -67,7 +71,27 @@
     }
     #compass-svg { display: block; }
 
-    /* Re-centre */
+    /* ── Category toggle buttons ─────────────────────────── */
+    #cat-toggles {
+      position: fixed; top: 68px; right: 18px; z-index: 1000;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .cat-btn {
+      width: 44px; height: 44px; border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.25);
+      background: rgba(0,0,0,0.75);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; backdrop-filter: blur(6px);
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.2s, border-color 0.2s;
+      opacity: 0.5;   /* dim = hidden */
+    }
+    .cat-btn.active {
+      opacity: 1;
+      border-color: rgba(255,255,255,0.7);
+    }
+
+    /* ── Re-centre ───────────────────────────────────────── */
     #recenter-btn {
       position: fixed; bottom: 90px; right: 18px; z-index: 1000;
       width: 52px; height: 52px; border-radius: 50%;
@@ -79,7 +103,7 @@
     }
     #recenter-btn.visible { display: flex; }
 
-    /* Pan banner */
+    /* ── Pan banner ──────────────────────────────────────── */
     #pan-banner {
       position: fixed; bottom: 32px; left: 50%;
       transform: translateX(-50%);
@@ -94,7 +118,7 @@
     }
     #pan-banner.visible { opacity: 1; }
 
-    /* Status bar */
+    /* ── Status bar ──────────────────────────────────────── */
     #status-bar {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
       background: rgba(0,0,0,0.85);
@@ -113,19 +137,32 @@
     #status-dot.acquiring { background: #f5a623; animation: pulse 1s infinite; }
     #status-dot.active    { background: #4cd964; }
     #status-dot.error     { background: #ff3b30; }
-    /* Debug row — shows raw heading sources */
     #debug-row {
       color: rgba(255,255,200,0.6); font-size: 9px;
-      font-family: monospace; letter-spacing: 0.03em;
+      font-family: monospace;
     }
-
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* ── POI tooltip ─────────────────────────────────────── */
+    .poi-tooltip {
+      background: rgba(0,0,0,0.82) !important;
+      border: 1px solid rgba(255,255,255,0.2) !important;
+      border-radius: 6px !important;
+      color: #fff !important;
+      font-size: 11px !important;
+      font-family: 'Courier New', monospace !important;
+      padding: 4px 8px !important;
+      white-space: nowrap;
+      box-shadow: none !important;
+    }
+    .poi-tooltip::before { display: none !important; }
   </style>
 </head>
 <body>
 
   <div id="map-wrapper"><div id="map"></div></div>
 
+  <!-- HUD -->
   <div id="hud">
     <div class="hud-pill">
       <span class="label">Speed</span>
@@ -141,6 +178,7 @@
     </div>
   </div>
 
+  <!-- Compass -->
   <div id="north-arrow">
     <svg id="compass-svg" width="28" height="28" viewBox="0 0 28 28">
       <polygon points="14,2 18,14 14,12 10,14" fill="#ff3b30"/>
@@ -150,6 +188,9 @@
     </svg>
   </div>
 
+  <!-- Category toggles — built by JS -->
+  <div id="cat-toggles"></div>
+
   <button id="recenter-btn" title="Return to my location">⊕</button>
   <div id="pan-banner">Exploring — returning in <span id="pan-countdown">5</span>s</div>
 
@@ -158,13 +199,13 @@
       <span><span id="status-dot" class="acquiring"></span><span id="status-text">Acquiring GPS…</span></span>
       <span id="status-coords">—</span>
     </div>
-    <div id="debug-row">hdg src: — | gps_hdg: null | orient: null | display: 0°</div>
+    <div id="debug-row">gps_hdg: — | speed: — | display: —</div>
   </div>
 
   <script>
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      CONFIG
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   const CFG = {
     defaultLat:   34.6059,
     defaultLng:  -86.9833,
@@ -176,11 +217,101 @@
     gpsMaxAge:    1000,
     panReturnSec: 5,
     arrowPx:      48,
+    // POIs only shown at this zoom level and above — avoids clutter when zoomed out
+    poiMinZoom:   9,
+    // Path to GeoJSON file — same directory as this HTML file
+    geojsonUrl:   'pois.geojson',
   };
 
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
+     POI CATEGORY DEFINITIONS
+     icon: function returning SVG string for a 40×40 viewBox pin
+  ═══════════════════════════════════════════════════════ */
+  const POI_CATEGORIES = {
+    bucees: {
+      label: "Buc-ee's",
+      color: '#FFD700',
+      stroke: '#B8960A',
+      visible: true,
+      // Beaver face pin
+      icon: (c, s) => `
+        <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
+        <circle cx="20" cy="18" r="10" fill="#fff" opacity="0.95"/>
+        <ellipse cx="11" cy="10" rx="4" ry="4.5" fill="${c}" stroke="${s}" stroke-width="0.8"/>
+        <ellipse cx="29" cy="10" rx="4" ry="4.5" fill="${c}" stroke="${s}" stroke-width="0.8"/>
+        <circle cx="16.5" cy="16.5" r="2" fill="#1a1a1a"/>
+        <circle cx="23.5" cy="16.5" r="2" fill="#1a1a1a"/>
+        <ellipse cx="20" cy="19.5" rx="1.6" ry="1.1" fill="#333"/>
+        <rect x="17" y="21" width="2.8" height="3.5" rx="0.7" fill="#fff" stroke="#ddd" stroke-width="0.4"/>
+        <rect x="20.2" y="21" width="2.8" height="3.5" rx="0.7" fill="#fff" stroke="#ddd" stroke-width="0.4"/>`,
+    },
+    walmart: {
+      label: 'Walmart',
+      color: '#0071CE',
+      stroke: '#004C9A',
+      visible: true,
+      // Shopping cart + star pin
+      icon: (c, s) => `
+        <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
+        <rect x="11" y="16" width="18" height="11" rx="1.8" fill="none" stroke="#fff" stroke-width="1.8"/>
+        <path d="M8 12 L11 12 L11 16" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="15" cy="29" r="2" fill="#fff"/>
+        <circle cx="25" cy="29" r="2" fill="#fff"/>
+        <path d="M20 6 L21.2 9.8 L25.2 9.8 L22 12.1 L23.2 15.9 L20 13.6 L16.8 15.9 L18 12.1 L14.8 9.8 L18.8 9.8 Z" fill="#FFC200"/>`,
+    },
+    tesla_supercharger: {
+      label: 'Supercharger',
+      color: '#E82127',
+      stroke: '#9E0000',
+      visible: true,
+      // Lightning bolt pin
+      icon: (c, s) => `
+        <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
+        <polygon points="23,5 14,22 20,22 17,35 27,16 21,16" fill="#fff"/>
+        <rect x="16.5" y="4" width="7" height="1.8" rx="0.5" fill="#FFD700"/>
+        <rect x="19.5" y="4" width="1.5" height="3" fill="#FFD700"/>`,
+    },
+    carwash: {
+      label: 'Mr. Carwash',
+      color: '#00AEEF',
+      stroke: '#0078A8',
+      visible: true,
+      // Car + water drops pin
+      icon: (c, s) => `
+        <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
+        <rect x="8" y="22" width="24" height="9" rx="1.8" fill="#fff"/>
+        <path d="M11 22 L13 16 L27 16 L29 22Z" fill="#fff"/>
+        <path d="M13 21.5 L14.5 17 L25.5 17 L27 21.5Z" fill="${c}" opacity="0.5"/>
+        <circle cx="13" cy="31" r="3.2" fill="${c}" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="27" cy="31" r="3.2" fill="${c}" stroke="#fff" stroke-width="1.2"/>
+        <ellipse cx="14" cy="9" rx="1.6" ry="2.8" fill="#fff" opacity="0.9"/>
+        <ellipse cx="20" cy="7.5" rx="1.6" ry="2.8" fill="#fff" opacity="0.9"/>
+        <ellipse cx="26" cy="9" rx="1.6" ry="2.8" fill="#fff" opacity="0.9"/>`,
+    },
+    rest_stop: {
+      label: 'Rest Stop',
+      color: '#4CAF50',
+      stroke: '#2E7D32',
+      visible: true,
+      // Picnic table + tree pin
+      icon: (c, s) => `
+        <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="${c}" stroke="${s}" stroke-width="1.2"/>
+        <rect x="9" y="20" width="22" height="8" rx="1.5" fill="#fff"/>
+        <rect x="11" y="28" width="2" height="5" rx="0.8" fill="#fff" opacity="0.7"/>
+        <rect x="27" y="28" width="2" height="5" rx="0.8" fill="#fff" opacity="0.7"/>
+        <rect x="6" y="22.5" width="5" height="4" rx="1.2" fill="#fff" opacity="0.85"/>
+        <rect x="29" y="22.5" width="5" height="4" rx="1.2" fill="#fff" opacity="0.85"/>
+        <circle cx="20" cy="11" rx="6.5" fill="#2E7D32"/>
+        <circle cx="16" cy="10" r="4" fill="#388E3C"/>
+        <circle cx="24" cy="10" r="4" fill="#388E3C"/>
+        <circle cx="20" cy="7" r="4" fill="#43A047"/>
+        <rect x="18.5" y="16" width="3" height="5" fill="#5D4037"/>`,
+    },
+  };
+
+  /* ═══════════════════════════════════════════════════════
      MAP
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   const map = L.map('map', {
     center: [CFG.defaultLat, CFG.defaultLng],
     zoom:    CFG.defaultZoom,
@@ -194,9 +325,9 @@
 
   L.tileLayer(CFG.tileUrl, { maxZoom: CFG.maxZoom, detectRetina: true }).addTo(map);
 
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      ARROW MARKER
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   const arrowMarker = L.marker([CFG.defaultLat, CFG.defaultLng], {
     icon: L.divIcon({
       className:  'arrow-marker-icon',
@@ -211,7 +342,7 @@
                <circle cx="24" cy="24" r="3.5" fill="#fff"/>
              </svg>`,
     }),
-    interactive: false, zIndexOffset: 1000,
+    interactive: false, zIndexOffset: 9000,
   }).addTo(map);
 
   const accuracyCircle = L.circle([CFG.defaultLat, CFG.defaultLng], {
@@ -227,19 +358,135 @@
   }
   map.on('zoom zoomend zoomstart move', updateArrowScale);
 
-  /* ═══════════════════════════════════════════════════
-     HEADING STATE
-     Source: GPS heading from Geolocation API only.
-     When GPS heading is null (parked / slow), we hold the last
-     known good value so the map doesn't snap back to north.
-     Tesla's browser does not expose DeviceOrientationEvent.
-  ═══════════════════════════════════════════════════ */
-  let lastGoodHeading = 0;    // last non-null GPS heading; never goes null
-  let currentSpeedMph = 0;
-  let displayHeading  = 0;    // smoothed value actually applied to DOM
-  let targetHeading   = 0;    // what we're chasing toward
+  /* ═══════════════════════════════════════════════════════
+     POI LAYER
+  ═══════════════════════════════════════════════════════ */
 
-  /* Shortest-arc lerp */
+  // One Leaflet LayerGroup per category — lets us show/hide independently
+  const poiLayers = {};
+  Object.keys(POI_CATEGORIES).forEach(id => {
+    poiLayers[id] = L.layerGroup();
+  });
+
+  // Build SVG pin HTML for a category
+  function makePinHtml(catId, size = 32) {
+    const cat = POI_CATEGORIES[catId];
+    if (!cat) return '';
+    const inner = cat.icon(cat.color, cat.stroke);
+    // viewBox is 0 0 40 40 for the body + 0-40 height for pin tip
+    return `<svg width="${size}" height="${size}"
+               viewBox="0 0 40 40"
+               xmlns="http://www.w3.org/2000/svg"
+               style="display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.5))">
+              ${inner}
+            </svg>`;
+  }
+
+  function makePoiIcon(catId) {
+    const size = 32;
+    return L.divIcon({
+      className:  'poi-icon',
+      iconSize:   [size, size],
+      iconAnchor: [size/2, size],   // tip of pin at the location
+      html: makePinHtml(catId, size),
+    });
+  }
+
+  // Add all features from GeoJSON into their layer groups
+  function loadPOIs(geojson) {
+    let total = 0;
+    geojson.features.forEach(feature => {
+      const props  = feature.properties;
+      const catId  = props.icon || props.category;
+      const layer  = poiLayers[catId];
+      if (!layer) return;
+
+      const [lon, lat] = feature.geometry.coordinates;
+      const name = props.name || catId;
+
+      const marker = L.marker([lat, lon], {
+        icon: makePoiIcon(catId),
+        zIndexOffset: 100,
+      });
+
+      // Tooltip shows name on hover / tap
+      marker.bindTooltip(name, {
+        className:  'poi-tooltip',
+        direction:  'top',
+        offset:     [0, -28],
+        permanent:  false,
+        sticky:     false,
+      });
+
+      layer.addLayer(marker);
+      total++;
+    });
+
+    document.getElementById('status-text').textContent =
+      `GPS active — ${total.toLocaleString()} POIs loaded`;
+
+    // Add visible layers to map now (respects toggle state and zoom)
+    updatePoiVisibility();
+  }
+
+  // Show/hide POI layers based on toggle state AND current zoom level
+  function updatePoiVisibility() {
+    const zoom = map.getZoom();
+    const show = zoom >= CFG.poiMinZoom;
+    Object.keys(POI_CATEGORIES).forEach(id => {
+      const cat   = POI_CATEGORIES[id];
+      const layer = poiLayers[id];
+      if (cat.visible && show) {
+        if (!map.hasLayer(layer)) map.addLayer(layer);
+      } else {
+        if (map.hasLayer(layer))  map.removeLayer(layer);
+      }
+    });
+  }
+
+  map.on('zoomend', updatePoiVisibility);
+
+  // Fetch and load the GeoJSON file
+  function fetchPOIs() {
+    fetch(CFG.geojsonUrl)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(loadPOIs)
+      .catch(err => {
+        console.warn('POI load failed:', err);
+        // Not fatal — map still works without POIs
+      });
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     CATEGORY TOGGLE BUTTONS
+  ═══════════════════════════════════════════════════════ */
+  function buildToggles() {
+    const container = document.getElementById('cat-toggles');
+    Object.entries(POI_CATEGORIES).forEach(([id, cat]) => {
+      const btn = document.createElement('button');
+      btn.className = 'cat-btn' + (cat.visible ? ' active' : '');
+      btn.title = cat.label;
+      btn.innerHTML = makePinHtml(id, 26);
+      btn.addEventListener('click', () => {
+        cat.visible = !cat.visible;
+        btn.classList.toggle('active', cat.visible);
+        updatePoiVisibility();
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     HEADING STATE
+  ═══════════════════════════════════════════════════════ */
+  let lastGoodHeading = 0;
+  let currentSpeedMph = 0;
+  let displayHeading  = 0;
+  let targetHeading   = 0;
+
   function lerpAngle(cur, tgt, alpha) {
     let d = tgt - cur;
     while (d >  180) d -= 360;
@@ -247,12 +494,9 @@
     return cur + alpha * d;
   }
 
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      rAF ROTATION LOOP
-     Uses lastGoodHeading as target.  Updated by GPS whenever
-     heading is non-null.  Holds last known value when null.
-     Map wrapper and compass both rotate by -heading.
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   function rotationLoop() {
     targetHeading  = lastGoodHeading;
     displayHeading = lerpAngle(displayHeading, targetHeading, 0.08);
@@ -263,18 +507,16 @@
     if (wrapper) wrapper.style.transform = `translate(-50%,-50%) rotate(${r}deg)`;
     if (compass) compass.style.transform = `rotate(${r}deg)`;
 
-    // Debug line — shows raw GPS heading so you can see what the car provides
-    const rawHdg = lastGoodHeading;
     document.getElementById('debug-row').textContent =
-      `gps_hdg:${rawHdg.toFixed(1)}° | speed:${currentSpeedMph.toFixed(1)}mph` +
+      `gps_hdg:${lastGoodHeading.toFixed(1)}° | speed:${currentSpeedMph.toFixed(1)}mph` +
       ` | display:${displayHeading.toFixed(1)}°`;
 
     requestAnimationFrame(rotationLoop);
   }
 
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      GPS
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   let currentLat = CFG.defaultLat, currentLng = CFG.defaultLng;
   let firstFix   = true;
   let isPanning  = false, panReturnTimer = null, panCountdownInterval = null;
@@ -294,12 +536,9 @@
     currentLat = latitude; currentLng = longitude;
     currentSpeedMph = mpsToMph(speed);
 
-    // Update heading — hold last good value when GPS heading is null
-    // (GPS heading goes null when parked; we keep the last known direction)
     if (heading != null && !isNaN(heading)) {
       lastGoodHeading = heading;
     }
-    // If heading is null, lastGoodHeading keeps its previous value — no snap
 
     arrowMarker.setLatLng([latitude, longitude]);
     accuracyCircle.setLatLng([latitude, longitude]);
@@ -311,8 +550,7 @@
     firstFix = false;
     updateArrowScale();
 
-    const mph = currentSpeedMph;
-    el('hud-speed').textContent    = `${Math.round(mph)} mph`;
+    el('hud-speed').textContent    = `${Math.round(currentSpeedMph)} mph`;
     el('hud-heading').textContent  =
       `${Math.round(targetHeading)}° ${headingToCardinal(targetHeading)}`;
     el('hud-accuracy').textContent =
@@ -320,7 +558,10 @@
     el('status-coords').textContent =
       `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
     el('status-dot').className    = 'active';
-    el('status-text').textContent = 'GPS active';
+    // Don't overwrite the POI count message once loaded
+    if (el('status-text').textContent === 'Acquiring GPS…') {
+      el('status-text').textContent = 'GPS active';
+    }
   }
 
   function onError(err) {
@@ -343,9 +584,9 @@
     );
   }
 
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      PAN MODE
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   function enterPanMode() {
     if (isPanning) { resetPanTimer(); return; }
     isPanning = true;
@@ -375,11 +616,11 @@
   map.on('drag', resetPanTimer);
   el('recenter-btn').addEventListener('click', returnToLocation);
 
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      ZOOM BUTTONS
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   function addZoomButtons() {
-    const base = `position:fixed;right:18px;z-index:1000;width:48px;height:48px;
+    const base = `position:fixed;right:18px;z-index:1000;width:44px;height:44px;
       border-radius:8px;background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.2);
       color:#fff;font-size:24px;font-weight:300;cursor:pointer;backdrop-filter:blur(6px);
       display:flex;align-items:center;justify-content:center;
@@ -387,7 +628,7 @@
     const zIn  = document.createElement('button');
     const zOut = document.createElement('button');
     zIn.style.cssText  = base + 'bottom:86px;';
-    zOut.style.cssText = base + 'bottom:140px;';
+    zOut.style.cssText = base + 'bottom:136px;';
     zIn.textContent = '+'; zOut.textContent = '−';
     zIn.addEventListener('click',  () => map.setZoom(map.getZoom() + 1));
     zOut.addEventListener('click', () => map.setZoom(map.getZoom() - 1));
@@ -395,11 +636,13 @@
     document.body.appendChild(zIn);
   }
 
-  /* ═══════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      BOOT
-  ═══════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
+  buildToggles();
   addZoomButtons();
-  startGPS();  // compass removed — Tesla browser has no magnetometer API
+  fetchPOIs();
+  startGPS();
   requestAnimationFrame(rotationLoop);
   setTimeout(() => { map.invalidateSize(); updateArrowScale(); }, 300);
   window.addEventListener('resize', () => map.invalidateSize());
