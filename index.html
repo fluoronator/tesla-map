@@ -10,7 +10,6 @@
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     html, body {
       width: 100%; height: 100%;
       overflow: hidden;
@@ -19,38 +18,21 @@
       touch-action: none;
     }
 
-    /*
-      Map wrapper — oversized so corners never show during rotation.
-      NO CSS transition here. Rotation is driven frame-by-frame by
-      requestAnimationFrame so it can't conflict with Leaflet's own
-      internal transform animations on child elements.
-    */
+    /* Map wrapper — NO CSS transition, rotation driven by rAF */
     #map-wrapper {
       position: fixed;
-      width: 200vmax;
-      height: 200vmax;
+      width: 200vmax; height: 200vmax;
       top: 50%; left: 50%;
-      /* transform set entirely by JS — no CSS default needed */
       transform-origin: center center;
-      /* NO transition property — kills the conflict with Leaflet */
     }
-
     #map { width: 100%; height: 100%; }
 
-    /* Arrow marker — lives inside the map so it pans with it */
-    .arrow-marker-icon {
-      background: none !important;
-      border: none !important;
-    }
-    .arrow-marker-icon svg {
-      transform-origin: 24px 24px;
-      /* scale set by JS */
-    }
+    .arrow-marker-icon { background: none !important; border: none !important; }
+    .arrow-marker-icon svg { transform-origin: 24px 24px; }
 
-    /* ── HUD ─────────────────────────────────────────────────────── */
+    /* HUD */
     #hud {
-      position: fixed; top: 0; left: 0;
-      z-index: 1000;
+      position: fixed; top: 0; left: 0; z-index: 1000;
       padding: 14px 18px;
       display: flex; flex-direction: column; gap: 6px;
       pointer-events: none;
@@ -73,34 +55,31 @@
       font-variant-numeric: tabular-nums;
     }
 
-    /* ── Compass ─────────────────────────────────────────────────── */
+    /* Compass */
     #north-arrow {
-      position: fixed; top: 14px; right: 18px;
-      z-index: 1000; width: 44px; height: 44px;
+      position: fixed; top: 14px; right: 18px; z-index: 1000;
+      width: 44px; height: 44px;
       background: rgba(0,0,0,0.72);
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 50%; backdrop-filter: blur(6px);
       display: flex; align-items: center; justify-content: center;
       pointer-events: none;
     }
-    /* NO CSS transition on compass either — driven by rAF */
     #compass-svg { display: block; }
 
-    /* ── Re-centre button ────────────────────────────────────────── */
+    /* Re-centre */
     #recenter-btn {
-      position: fixed; bottom: 90px; right: 18px;
-      z-index: 1000;
+      position: fixed; bottom: 90px; right: 18px; z-index: 1000;
       width: 52px; height: 52px; border-radius: 50%;
       background: rgba(30,140,255,0.9);
       border: 2px solid rgba(255,255,255,0.3);
       color: #fff; font-size: 22px;
       display: none; align-items: center; justify-content: center;
-      cursor: pointer; box-shadow: 0 2px 12px rgba(0,0,0,0.5);
-      -webkit-tap-highlight-color: transparent;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
     }
     #recenter-btn.visible { display: flex; }
 
-    /* ── Pan banner ──────────────────────────────────────────────── */
+    /* Pan banner */
     #pan-banner {
       position: fixed; bottom: 32px; left: 50%;
       transform: translateX(-50%);
@@ -115,17 +94,17 @@
     }
     #pan-banner.visible { opacity: 1; }
 
-    /* ── Status bar ──────────────────────────────────────────────── */
+    /* Status bar */
     #status-bar {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      z-index: 1000;
-      background: rgba(0,0,0,0.8);
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
+      background: rgba(0,0,0,0.85);
       border-top: 1px solid rgba(255,255,255,0.1);
-      padding: 8px 18px;
-      display: flex; align-items: center; justify-content: space-between;
-      color: rgba(255,255,255,0.5); font-size: 11px;
+      padding: 5px 18px;
+      display: flex; flex-direction: column; gap: 2px;
+      color: rgba(255,255,255,0.5); font-size: 10px;
       pointer-events: none;
     }
+    #status-row1 { display: flex; justify-content: space-between; align-items: center; }
     #status-dot {
       width: 7px; height: 7px; border-radius: 50%;
       background: #666; display: inline-block; margin-right: 6px;
@@ -134,17 +113,18 @@
     #status-dot.acquiring { background: #f5a623; animation: pulse 1s infinite; }
     #status-dot.active    { background: #4cd964; }
     #status-dot.error     { background: #ff3b30; }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
+    /* Debug row — shows raw heading sources */
+    #debug-row {
+      color: rgba(255,255,200,0.6); font-size: 9px;
+      font-family: monospace; letter-spacing: 0.03em;
     }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
   </style>
 </head>
 <body>
 
-  <div id="map-wrapper">
-    <div id="map"></div>
-  </div>
+  <div id="map-wrapper"><div id="map"></div></div>
 
   <div id="hud">
     <div class="hud-pill">
@@ -162,12 +142,6 @@
   </div>
 
   <div id="north-arrow">
-    <!--
-      The compass SVG: N polygon points UP in SVG space (y=2 is the tip).
-      When heading=0 (facing North), map rotation=0, compass rotation=0 → N points up. ✓
-      When heading=90 (facing East), map rotation=-90°, compass rotation=-90° → N points left. ✓
-      Rule: compass rotates by exactly -heading, same as the map wrapper.
-    -->
     <svg id="compass-svg" width="28" height="28" viewBox="0 0 28 28">
       <polygon points="14,2 18,14 14,12 10,14" fill="#ff3b30"/>
       <polygon points="14,26 18,14 14,16 10,14" fill="#666"/>
@@ -177,18 +151,20 @@
   </div>
 
   <button id="recenter-btn" title="Return to my location">⊕</button>
-
   <div id="pan-banner">Exploring — returning in <span id="pan-countdown">5</span>s</div>
 
   <div id="status-bar">
-    <span><span id="status-dot" class="acquiring"></span><span id="status-text">Acquiring GPS…</span></span>
-    <span id="status-coords">—</span>
+    <div id="status-row1">
+      <span><span id="status-dot" class="acquiring"></span><span id="status-text">Acquiring GPS…</span></span>
+      <span id="status-coords">—</span>
+    </div>
+    <div id="debug-row">hdg src: — | gps_hdg: null | orient: null | display: 0°</div>
   </div>
 
   <script>
-  /* ═══════════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════
      CONFIG
-  ═══════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════ */
   const CFG = {
     defaultLat:   34.6059,
     defaultLng:  -86.9833,
@@ -198,219 +174,202 @@
     tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     tileAttr: 'Tiles &copy; Esri',
     gpsMaxAge:    1000,
-    headingAlpha: 0.15,   // smoothing per rAF frame (lower = smoother but slower)
+    // Speed threshold (mph) below which we prefer compass over GPS heading.
+    // GPS heading is unreliable / null when slow or stationary.
+    gpsHeadingMinSpeed: 3,
     panReturnSec: 5,
     arrowPx:      48,
   };
 
-  /* ═══════════════════════════════════════════════════════════════
-     MAP  — disable animate on setView to avoid transform conflicts
-  ═══════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════
+     MAP
+  ═══════════════════════════════════════════════════ */
   const map = L.map('map', {
-    center:            [CFG.defaultLat, CFG.defaultLng],
-    zoom:               CFG.defaultZoom,
-    minZoom:            CFG.minZoom,
-    maxZoom:            CFG.maxZoom,
-    zoomControl:        false,
-    attributionControl: false,
-    dragging:           true,
-    scrollWheelZoom:    true,
-    doubleClickZoom:    false,
-    touchZoom:          true,
-    bounceAtZoomLimits: false,
-    keyboard:           false,
-    // Disable Leaflet's pan animation — it sets transforms on map panes
-    // which can fight our wrapper rotation if both run simultaneously.
-    animate:            false,
+    center: [CFG.defaultLat, CFG.defaultLng],
+    zoom:    CFG.defaultZoom,
+    minZoom: CFG.minZoom, maxZoom: CFG.maxZoom,
+    zoomControl: false, attributionControl: false,
+    dragging: true, scrollWheelZoom: true,
+    doubleClickZoom: false, touchZoom: true,
+    bounceAtZoomLimits: false, keyboard: false,
+    animate: false,
   });
 
-  L.tileLayer(CFG.tileUrl, {
-    attribution: CFG.tileAttr,
-    maxZoom: CFG.maxZoom,
-    detectRetina: true,
-  }).addTo(map);
+  L.tileLayer(CFG.tileUrl, { maxZoom: CFG.maxZoom, detectRetina: true }).addTo(map);
 
-  /* ═══════════════════════════════════════════════════════════════
-     ARROW MARKER  (Leaflet marker so it pans with the map)
-  ═══════════════════════════════════════════════════════════════ */
-  const ARROW_HTML = `
-    <svg id="arrow-svg" width="${CFG.arrowPx}" height="${CFG.arrowPx}"
-         viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg"
-         style="transform-origin:24px 24px; display:block;">
-      <circle cx="24" cy="24" r="12"
-              fill="rgba(30,140,255,0.18)"
-              stroke="rgba(30,140,255,0.5)" stroke-width="1.5"/>
-      <polygon points="24,5 33,38 24,30 15,38"
-               fill="#1e8cff" stroke="#fff"
-               stroke-width="1.8" stroke-linejoin="round"/>
-      <circle cx="24" cy="24" r="3.5" fill="#fff"/>
-    </svg>`;
-
+  /* ═══════════════════════════════════════════════════
+     ARROW MARKER
+  ═══════════════════════════════════════════════════ */
   const arrowMarker = L.marker([CFG.defaultLat, CFG.defaultLng], {
     icon: L.divIcon({
       className:  'arrow-marker-icon',
       iconSize:   [CFG.arrowPx, CFG.arrowPx],
-      iconAnchor: [CFG.arrowPx / 2, CFG.arrowPx / 2],
-      html:       ARROW_HTML,
+      iconAnchor: [CFG.arrowPx/2, CFG.arrowPx/2],
+      html: `<svg id="arrow-svg" width="${CFG.arrowPx}" height="${CFG.arrowPx}"
+               viewBox="0 0 48 48" style="transform-origin:24px 24px;display:block;">
+               <circle cx="24" cy="24" r="12"
+                 fill="rgba(30,140,255,0.18)" stroke="rgba(30,140,255,0.5)" stroke-width="1.5"/>
+               <polygon points="24,5 33,38 24,30 15,38"
+                 fill="#1e8cff" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/>
+               <circle cx="24" cy="24" r="3.5" fill="#fff"/>
+             </svg>`,
     }),
-    interactive: false,
-    zIndexOffset: 1000,
+    interactive: false, zIndexOffset: 1000,
   }).addTo(map);
 
   const accuracyCircle = L.circle([CFG.defaultLat, CFG.defaultLng], {
-    radius: 20,
-    color: '#1e8cff', fillColor: '#1e8cff',
-    fillOpacity: 0.06, weight: 1, opacity: 0.35,
-    interactive: false,
+    radius: 20, color: '#1e8cff', fillColor: '#1e8cff',
+    fillOpacity: 0.06, weight: 1, opacity: 0.35, interactive: false,
   }).addTo(map);
 
-  /* ═══════════════════════════════════════════════════════════════
-     ARROW SCALE  — counter-scale the SVG to stay fixed pixel size
-  ═══════════════════════════════════════════════════════════════ */
   function updateArrowScale() {
     const svg = document.getElementById('arrow-svg');
     if (!svg) return;
-    const pane  = map.getPanes().markerPane;
-    const mat   = new DOMMatrix(window.getComputedStyle(pane).transform);
-    const scale = mat.a || 1;
-    svg.style.transform = `scale(${1 / scale})`;
+    const mat = new DOMMatrix(window.getComputedStyle(map.getPanes().markerPane).transform);
+    svg.style.transform = `scale(${1 / (mat.a || 1)})`;
   }
   map.on('zoom zoomend zoomstart move', updateArrowScale);
 
-  /* ═══════════════════════════════════════════════════════════════
-     STATE
-  ═══════════════════════════════════════════════════════════════ */
-  let currentLat      = CFG.defaultLat;
-  let currentLng      = CFG.defaultLng;
-  let targetHeading   = 0;   // where we WANT to be (from GPS)
-  let displayHeading  = 0;   // where we ARE right now (smoothed by rAF)
-  let firstFix        = true;
-  let isPanning       = false;
-  let panReturnTimer  = null;
-  let panCountdownInterval = null;
-  let rafId           = null;
+  /* ═══════════════════════════════════════════════════
+     HEADING STATE
+     We blend two sources:
+       gpsHeading     — from Geolocation API (only valid when moving)
+       compassHeading — from DeviceOrientationEvent (always available)
+     The active source is chosen per-frame based on speed.
+  ═══════════════════════════════════════════════════ */
+  let gpsHeading     = null;   // degrees, from GPS (null when slow/stopped)
+  let compassHeading = null;   // degrees, from device compass
+  let currentSpeedMph = 0;
+  let displayHeading = 0;      // smoothed value actually applied to DOM
+  let targetHeading  = 0;      // what we're chasing toward
 
-  /* ═══════════════════════════════════════════════════════════════
-     HELPERS
-  ═══════════════════════════════════════════════════════════════ */
+  /* Shortest-arc lerp */
+  function lerpAngle(cur, tgt, alpha) {
+    let d = tgt - cur;
+    while (d >  180) d -= 360;
+    while (d < -180) d += 360;
+    return cur + alpha * d;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     DEVICE ORIENTATION (compass)
+     Works on Tesla's Chromium browser.
+     alpha = compass heading in degrees (0=North, clockwise).
+     Note: on some browsers alpha is relative to arbitrary origin —
+     webkitCompassHeading is the true-north version on Safari/iOS.
+     Chromium on Linux (Tesla) uses alpha as magnetic north directly.
+  ═══════════════════════════════════════════════════ */
+  let orientationSource = 'none';
+
+  function handleOrientation(evt) {
+    // webkitCompassHeading: iOS/Safari true-north (preferred)
+    if (evt.webkitCompassHeading != null && !isNaN(evt.webkitCompassHeading)) {
+      compassHeading = evt.webkitCompassHeading;
+      orientationSource = 'webkitCompass';
+      return;
+    }
+    // alpha: Chromium — 0 at startup, increases clockwise.
+    // On Tesla's Linux Chromium this IS magnetic north if the device
+    // has a magnetometer registered.
+    if (evt.alpha != null && !isNaN(evt.alpha)) {
+      // alpha increases counter-clockwise on some devices; correct if needed
+      compassHeading = (360 - evt.alpha) % 360;
+      orientationSource = 'alpha';
+    }
+  }
+
+  function startCompass() {
+    if (!window.DeviceOrientationEvent) {
+      document.getElementById('debug-row').textContent += ' | no DeviceOrientation';
+      return;
+    }
+    // iOS 13+ requires permission
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission()
+        .then(state => {
+          if (state === 'granted')
+            window.addEventListener('deviceorientation', handleOrientation, true);
+        })
+        .catch(() => {});
+    } else {
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════
+     rAF ROTATION LOOP
+     Picks best heading source each frame, lerps toward it,
+     applies to map wrapper and compass SVG.
+     Both get rotate(-heading): map so heading=up, compass so N tracks north.
+  ═══════════════════════════════════════════════════ */
+  function rotationLoop() {
+    // Choose source: GPS heading when moving fast enough, compass otherwise
+    let src = 'none';
+    if (currentSpeedMph >= CFG.gpsHeadingMinSpeed && gpsHeading != null) {
+      targetHeading = gpsHeading;
+      src = 'gps';
+    } else if (compassHeading != null) {
+      targetHeading = compassHeading;
+      src = 'compass';
+    }
+    // else targetHeading stays at last known value
+
+    // Smooth toward target — alpha 0.08 per frame ≈ comfortable car rotation
+    displayHeading = lerpAngle(displayHeading, targetHeading, 0.08);
+
+    // Apply — both map and compass rotate by -heading
+    const r = -displayHeading;
+    const wrapper = document.getElementById('map-wrapper');
+    const compass = document.getElementById('compass-svg');
+    if (wrapper) wrapper.style.transform = `translate(-50%,-50%) rotate(${r}deg)`;
+    if (compass) compass.style.transform = `rotate(${r}deg)`;
+
+    // Debug line
+    document.getElementById('debug-row').textContent =
+      `src:${src} | gps_hdg:${gpsHeading != null ? Math.round(gpsHeading)+'°' : 'null'}` +
+      ` | compass:${compassHeading != null ? Math.round(compassHeading)+'°' : 'null'}` +
+      ` | speed:${currentSpeedMph.toFixed(1)}mph | display:${Math.round(displayHeading)}°`;
+
+    requestAnimationFrame(rotationLoop);
+  }
+
+  /* ═══════════════════════════════════════════════════
+     GPS
+  ═══════════════════════════════════════════════════ */
+  let currentLat = CFG.defaultLat, currentLng = CFG.defaultLng;
+  let firstFix   = true;
+  let isPanning  = false, panReturnTimer = null, panCountdownInterval = null;
+
   const el = id => document.getElementById(id);
 
   function mpsToMph(mps) {
-    return (mps == null || isNaN(mps)) ? null : Math.round(mps * 2.23694);
+    return (mps == null || isNaN(mps)) ? 0 : mps * 2.23694;
   }
-
   function headingToCardinal(deg) {
     const d = ['N','NE','E','SE','S','SW','W','NW'];
-    return d[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
+    return d[Math.round(((deg%360)+360)%360/45)%8];
   }
 
-  /* Shortest-arc lerp so we always rotate the short way round the circle */
-  function lerpAngle(current, target, alpha) {
-    let diff = target - current;
-    while (diff >  180) diff -= 360;
-    while (diff < -180) diff += 360;
-    return current + alpha * diff;
-  }
-
-  /* ═══════════════════════════════════════════════════════════════
-     ROTATION — driven by requestAnimationFrame, not CSS transitions.
-
-     PROOF of compass direction:
-       • Map wrapper rotates by -heading degrees.
-         (heading=90° East → wrapper rotates -90° → East now points UP)
-       • The compass SVG is OUTSIDE the wrapper, fixed to screen.
-         It needs to show where North is on screen.
-       • North on the map has been rotated -heading degrees relative
-         to the screen. So the N pointer must also rotate -heading
-         to track it. Same sign, same magnitude as the map wrapper.
-       • Example: heading=90° (East). Map rotates -90°. North was
-         up, now points LEFT. Compass rotates -90° → N points LEFT. ✓
-  ═══════════════════════════════════════════════════════════════ */
-  function applyRotation(deg) {
-    const wrapper = document.getElementById('map-wrapper');
-    const compass = document.getElementById('compass-svg');
-    if (!wrapper || !compass) return;
-
-    // Both get -heading. Map wrapper: so heading = screen-up.
-    // Compass: so N marker tracks where north actually is on screen.
-    const r = -deg;
-    wrapper.style.transform = `translate(-50%, -50%) rotate(${r}deg)`;
-    compass.style.transform = `rotate(${r}deg)`;
-  }
-
-  /* rAF loop — smoothly interpolates displayHeading toward targetHeading */
-  function rotationLoop() {
-    displayHeading = lerpAngle(displayHeading, targetHeading, CFG.headingAlpha);
-    applyRotation(displayHeading);
-    rafId = requestAnimationFrame(rotationLoop);
-  }
-
-  /* ═══════════════════════════════════════════════════════════════
-     PAN / EXPLORE MODE
-  ═══════════════════════════════════════════════════════════════ */
-  function enterPanMode() {
-    if (isPanning) { resetPanTimer(); return; }
-    isPanning = true;
-    el('recenter-btn').classList.add('visible');
-    el('pan-banner').classList.add('visible');
-    resetPanTimer();
-  }
-
-  function resetPanTimer() {
-    clearTimeout(panReturnTimer);
-    clearInterval(panCountdownInterval);
-    let secs = CFG.panReturnSec;
-    el('pan-countdown').textContent = secs;
-    panCountdownInterval = setInterval(() => {
-      secs--;
-      el('pan-countdown').textContent = Math.max(0, secs);
-      if (secs <= 0) clearInterval(panCountdownInterval);
-    }, 1000);
-    panReturnTimer = setTimeout(returnToLocation, CFG.panReturnSec * 1000);
-  }
-
-  function returnToLocation() {
-    clearTimeout(panReturnTimer);
-    clearInterval(panCountdownInterval);
-    isPanning = false;
-    el('recenter-btn').classList.remove('visible');
-    el('pan-banner').classList.remove('visible');
-    map.setView([currentLat, currentLng], map.getZoom());
-  }
-
-  map.on('dragstart', enterPanMode);
-  map.on('drag',      resetPanTimer);
-  el('recenter-btn').addEventListener('click', returnToLocation);
-
-  /* ═══════════════════════════════════════════════════════════════
-     GPS HANDLER
-  ═══════════════════════════════════════════════════════════════ */
   function onPosition(pos) {
     const { latitude, longitude, accuracy, heading, speed } = pos.coords;
+    currentLat = latitude; currentLng = longitude;
+    currentSpeedMph = mpsToMph(speed);
 
-    currentLat = latitude;
-    currentLng = longitude;
+    // Store GPS heading (may be null when slow)
+    gpsHeading = (heading != null && !isNaN(heading)) ? heading : null;
 
     arrowMarker.setLatLng([latitude, longitude]);
     accuracyCircle.setLatLng([latitude, longitude]);
     accuracyCircle.setRadius(accuracy ?? 20);
 
     if (!isPanning) {
-      map.setView([latitude, longitude],
-        firstFix ? CFG.defaultZoom : map.getZoom());
+      map.setView([latitude, longitude], firstFix ? CFG.defaultZoom : map.getZoom());
     }
     firstFix = false;
-
-    // Update target heading — the rAF loop smoothly chases it
-    if (heading != null && !isNaN(heading)) {
-      targetHeading = heading;
-    }
-
     updateArrowScale();
 
-    // HUD
-    const mph = mpsToMph(speed);
-    el('hud-speed').textContent    = mph != null ? `${mph} mph` : '0 mph';
+    const mph = currentSpeedMph;
+    el('hud-speed').textContent    = `${Math.round(mph)} mph`;
     el('hud-heading').textContent  =
       `${Math.round(targetHeading)}° ${headingToCardinal(targetHeading)}`;
     el('hud-accuracy').textContent =
@@ -422,19 +381,11 @@
   }
 
   function onError(err) {
-    console.warn('GPS error', err.code, err.message);
     el('status-dot').className    = 'error';
     el('status-text').textContent = `GPS error (${err.code}): ${err.message}`;
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     START GPS
-  ═══════════════════════════════════════════════════════════════ */
-  const gpsOpts = {
-    enableHighAccuracy: true,
-    timeout: 10000,
-    maximumAge: CFG.gpsMaxAge,
-  };
+  const gpsOpts = { enableHighAccuracy: true, timeout: 10000, maximumAge: CFG.gpsMaxAge };
 
   function startGPS() {
     if (!navigator.geolocation) {
@@ -443,49 +394,71 @@
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      pos => {
-        onPosition(pos);
-        navigator.geolocation.watchPosition(onPosition, onError, gpsOpts);
-      },
-      err => {
-        onError(err);
-        navigator.geolocation.watchPosition(onPosition, onError, gpsOpts);
-      },
+      pos => { onPosition(pos); navigator.geolocation.watchPosition(onPosition, onError, gpsOpts); },
+      err  => { onError(err);   navigator.geolocation.watchPosition(onPosition, onError, gpsOpts); },
       gpsOpts
     );
   }
 
-  /* ═══════════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════
+     PAN MODE
+  ═══════════════════════════════════════════════════ */
+  function enterPanMode() {
+    if (isPanning) { resetPanTimer(); return; }
+    isPanning = true;
+    el('recenter-btn').classList.add('visible');
+    el('pan-banner').classList.add('visible');
+    resetPanTimer();
+  }
+  function resetPanTimer() {
+    clearTimeout(panReturnTimer); clearInterval(panCountdownInterval);
+    let secs = CFG.panReturnSec;
+    el('pan-countdown').textContent = secs;
+    panCountdownInterval = setInterval(() => {
+      secs--;
+      el('pan-countdown').textContent = Math.max(0, secs);
+      if (secs <= 0) clearInterval(panCountdownInterval);
+    }, 1000);
+    panReturnTimer = setTimeout(returnToLocation, CFG.panReturnSec * 1000);
+  }
+  function returnToLocation() {
+    clearTimeout(panReturnTimer); clearInterval(panCountdownInterval);
+    isPanning = false;
+    el('recenter-btn').classList.remove('visible');
+    el('pan-banner').classList.remove('visible');
+    map.setView([currentLat, currentLng], map.getZoom());
+  }
+  map.on('dragstart', enterPanMode);
+  map.on('drag', resetPanTimer);
+  el('recenter-btn').addEventListener('click', returnToLocation);
+
+  /* ═══════════════════════════════════════════════════
      ZOOM BUTTONS
-  ═══════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════ */
   function addZoomButtons() {
-    const base = `
-      position:fixed; right:18px; z-index:1000;
-      width:48px; height:48px; border-radius:8px;
-      background:rgba(0,0,0,0.72); border:1px solid rgba(255,255,255,0.2);
-      color:#fff; font-size:24px; font-weight:300; line-height:1;
-      cursor:pointer; backdrop-filter:blur(6px);
-      display:flex; align-items:center; justify-content:center;
-      -webkit-tap-highlight-color:transparent;
-    `;
+    const base = `position:fixed;right:18px;z-index:1000;width:48px;height:48px;
+      border-radius:8px;background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.2);
+      color:#fff;font-size:24px;font-weight:300;cursor:pointer;backdrop-filter:blur(6px);
+      display:flex;align-items:center;justify-content:center;
+      -webkit-tap-highlight-color:transparent;`;
     const zIn  = document.createElement('button');
     const zOut = document.createElement('button');
     zIn.style.cssText  = base + 'bottom:86px;';
     zOut.style.cssText = base + 'bottom:140px;';
-    zIn.textContent  = '+';
-    zOut.textContent = '−';
+    zIn.textContent = '+'; zOut.textContent = '−';
     zIn.addEventListener('click',  () => map.setZoom(map.getZoom() + 1));
     zOut.addEventListener('click', () => map.setZoom(map.getZoom() - 1));
     document.body.appendChild(zOut);
     document.body.appendChild(zIn);
   }
 
-  /* ═══════════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════
      BOOT
-  ═══════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════ */
   addZoomButtons();
+  startCompass();
   startGPS();
-  rotationLoop();   // start the rAF loop immediately
+  requestAnimationFrame(rotationLoop);
   setTimeout(() => { map.invalidateSize(); updateArrowScale(); }, 300);
   window.addEventListener('resize', () => map.invalidateSize());
   </script>
