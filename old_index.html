@@ -31,7 +31,7 @@
     #map { width: 100%; height: 100%; }
 
     .arrow-marker-icon { background: none !important; border: none !important; }
-    .arrow-marker-icon svg { transform-origin: 24px 24px; }
+    .arrow-marker-icon img { transform-origin: center center; display: block; }
     .poi-icon { background: none !important; border: none !important; }
 
     /* Cluster circles — override default style with our own */
@@ -86,6 +86,15 @@
       min-width: 72px; text-align: right;
     }
     .cat-dist.no-data { color: rgba(255,255,255,0.3); font-weight: 400; }
+
+    /* Direction arrow inside toggle button */
+    .cat-arrow {
+      width: 36px; height: 36px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .cat-arrow svg {
+      transition: transform 0.4s ease-out;
+    }
 
 
 
@@ -225,17 +234,13 @@
   ═══════════════════════════════════════════════════════ */
   const arrowMarker = L.marker([CFG.defaultLat, CFG.defaultLng], {
     icon: L.divIcon({
-      className: 'arrow-marker-icon',
-      iconSize:  [CFG.arrowPx, CFG.arrowPx],
-      iconAnchor:[CFG.arrowPx/2, CFG.arrowPx/2],
-      html: `<svg id="arrow-svg" width="${CFG.arrowPx}" height="${CFG.arrowPx}"
-               viewBox="0 0 48 48" style="transform-origin:24px 24px;display:block;">
-               <circle cx="24" cy="24" r="12"
-                 fill="rgba(30,140,255,0.18)" stroke="rgba(30,140,255,0.5)" stroke-width="1.5"/>
-               <polygon points="24,5 33,38 24,30 15,38"
-                 fill="#1e8cff" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/>
-               <circle cx="24" cy="24" r="3.5" fill="#fff"/>
-             </svg>`,
+      className:  'arrow-marker-icon',
+      iconSize:   [CFG.arrowPx, CFG.arrowPx],
+      iconAnchor: [CFG.arrowPx/2, CFG.arrowPx/2],
+      html: `<img id="arrow-svg"
+                  src="icon-arrow.svg"
+                  width="${CFG.arrowPx}" height="${CFG.arrowPx}"
+                  style="display:block;transform-origin:center center;">`,
     }),
     interactive: false, zIndexOffset: 9000,
   }).addTo(map);
@@ -382,31 +387,51 @@
     return R * 2 * Math.asin(Math.sqrt(a));
   }
 
+  // Bearing from (lat1,lon1) to (lat2,lon2) in degrees 0-360
+  function bearingTo(lat1, lon1, lat2, lon2) {
+    const d   = Math.PI / 180;
+    const dLon = (lon2 - lon1) * d;
+    const y   = Math.sin(dLon) * Math.cos(lat2 * d);
+    const x   = Math.cos(lat1 * d) * Math.sin(lat2 * d) -
+                Math.sin(lat1 * d) * Math.cos(lat2 * d) * Math.cos(dLon);
+    return (Math.atan2(y, x) / d + 360) % 360;
+  }
+
   function updateNearestDistances(lat, lon) {
     if (poiCoords.length === 0) return;
 
-    // Track minimum distance per category
-    const nearest = {};
+    // Track nearest distance AND coords per category
+    const nearest = {};   // catId -> { d, lat, lon }
     for (const p of poiCoords) {
       const d = haversineMiles(lat, lon, p.a, p.o);
-      if (nearest[p.c] === undefined || d < nearest[p.c]) {
-        nearest[p.c] = d;
+      if (nearest[p.c] === undefined || d < nearest[p.c].d) {
+        nearest[p.c] = { d, a: p.a, o: p.o };
       }
     }
 
-    // Update distance labels in the toggle panel
+    // Update distance labels and direction arrows
     for (const [catId] of Object.entries(POI_CATEGORIES)) {
-      const el  = document.getElementById(`dist-${catId}`);
-      if (!el) continue;
-      const d = nearest[catId];
-      if (d === undefined) {
-        el.textContent = '—';
-        el.className   = 'cat-dist no-data';
+      const distEl  = document.getElementById(`dist-${catId}`);
+      const arrowEl = document.getElementById(`arr-${catId}`);
+      const n = nearest[catId];
+
+      if (!distEl) continue;
+
+      if (n === undefined) {
+        distEl.textContent = '—';
+        distEl.className   = 'cat-dist no-data';
       } else {
-        el.textContent = d < 10
-          ? `${d.toFixed(1)} mi`
-          : `${Math.round(d)} mi`;
-        el.className = 'cat-dist';
+        distEl.textContent = n.d < 10
+          ? `${n.d.toFixed(1)} mi`
+          : `${Math.round(n.d)} mi`;
+        distEl.className = 'cat-dist';
+
+        // Store bearing so rotationLoop can reapply each frame as map rotates
+        const bearing = bearingTo(lat, lon, n.a, n.o);
+        lastBearings[catId] = bearing;
+        if (arrowEl) {
+          arrowEl.style.transform = `rotate(${bearing - displayHeading}deg)`;
+        }
       }
     }
   }
@@ -443,8 +468,20 @@
       dist.textContent = '—';
       dist.id          = `dist-${id}`;
 
+      // Direction arrow — rotated by updateNearestDistances()
+      const arrowWrap = document.createElement('div');
+      arrowWrap.className = 'cat-arrow';
+      arrowWrap.innerHTML = `<svg id="arr-${id}" width="32" height="32" viewBox="0 0 32 32"
+          style="display:block;transform-origin:center center;transition:transform 0.4s ease-out;">
+        <polygon points="16,3 22,24 16,19 10,24"
+                 fill="#ffffff" opacity="0.9"
+                 stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+        <circle cx="16" cy="16" r="3" fill="rgba(255,255,255,0.6)"/>
+      </svg>`;
+
       btn.appendChild(img);
       btn.appendChild(dist);
+      btn.appendChild(arrowWrap);
 
       btn.addEventListener('click', () => {
         cat.visible = !cat.visible;
@@ -487,12 +524,27 @@
     const arrowSvg = document.getElementById('arrow-svg');
     if (arrowSvg) arrowSvg.style.transform = `scale(${1/arrowScale}) rotate(${displayHeading}deg)`;
 
-    // Set CSS custom property so POI icons counter-rotate and stay upright.
-    // One property update per frame — GPU handles the per-element compositing.
+    // CSS custom property for POI icon counter-rotation (stays upright)
     document.documentElement.style.setProperty('--map-rot', `${displayHeading.toFixed(2)}deg`);
 
+    // Refresh direction arrows — they are in screen space so must account for
+    // displayHeading which changes every frame during smooth rotation.
+    // We store the last known bearings and reapply with current displayHeading.
+    refreshDirectionArrows();
 
     requestAnimationFrame(rotationLoop);
+  }
+
+  // Store last computed bearings so rotationLoop can reapply them each frame
+  const lastBearings = {};
+
+  function refreshDirectionArrows() {
+    for (const catId of Object.keys(POI_CATEGORIES)) {
+      const arrowEl = document.getElementById(`arr-${catId}`);
+      if (!arrowEl || lastBearings[catId] === undefined) continue;
+      const screenAngle = lastBearings[catId] - displayHeading;
+      arrowEl.style.transform = `rotate(${screenAngle}deg)`;
+    }
   }
 
   /* ═══════════════════════════════════════════════════════
