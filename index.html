@@ -459,7 +459,6 @@
      HEADING STATE & rAF ROTATION LOOP
   ═══════════════════════════════════════════════════════ */
   let lastGoodHeading = 0;
-  let currentSpeedMph = 0;
   let displayHeading  = 0;
   let targetHeading   = 0;
 
@@ -508,9 +507,8 @@
 
 
   function onPosition(pos) {
-    const { latitude, longitude, accuracy, heading, speed } = pos.coords;
+    const { latitude, longitude, accuracy, heading } = pos.coords;
     currentLat = latitude; currentLng = longitude;
-    currentSpeedMph = mpsToMph(speed);
     if (heading != null && !isNaN(heading)) lastGoodHeading = heading;
 
     arrowMarker.setLatLng([latitude, longitude]);
