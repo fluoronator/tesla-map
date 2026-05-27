@@ -1,0 +1,4 @@
+Run update_pois.py to create an updated pois.geojson file.
+Go to simplemaps.com/data/business/starbucks and downlowd the CSV file of all Starbucks locations. 
+Give both the pois.geojson and the starbucks.csv file to Claude to merge them togeather.
+Copy the new geojson file to the github project root.

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
-  <!-- Pin body -->
-  <path d="M20 0C9 0 0 9 0 20C0 31 20 40 20 40C20 40 40 31 40 20C40 9 31 0 20 0Z" fill="#E82127" stroke="#9E0000" stroke-width="1.2"/>
-  <!-- Lightning bolt -->
-  <polygon points="23,5 14,22 20,22 17,35 27,16 21,16" fill="#fff"/>
-  <!-- T crossbar (nod to Tesla without using logo) -->
-  <rect x="16.5" y="4" width="7" height="1.8" rx="0.5" fill="#FFD700"/>
-  <rect x="19.5" y="4" width="1.5" height="3" fill="#FFD700"/>
-</svg>

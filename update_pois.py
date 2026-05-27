@@ -1,30 +1,16 @@
 #!/usr/bin/env python3
 """
-Tesla Map — POI GeoJSON Updater v3
-Queries OpenStreetMap via Overpass API and writes pois.geojson.
-No API key required.
-
-Key fixes vs v2:
-  - Uses nwr (node/way/relation) shorthand — 3x fewer clauses, avoids timeouts
-  - Correct Tesla Supercharger wikidata ID: Q17089620
-  - Anchored regexes prevent false matches (Buckeye, etc.)
-  - Rest stops use only rest_area tags, not highway=services (gas stations)
-  - Diagnostic logging shows element type breakdown
+Tesla Map — POI GeoJSON Updater v5
+Source: OpenStreetMap via Overpass API — no API key required.
 """
 
-import json
-import time
-import threading
+import json, time, threading, os, sys
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
-import urllib.request
-import urllib.parse
-import urllib.error
+import urllib.request, urllib.parse, urllib.error
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CATEGORY DEFINITIONS
-# wikidata_id  — primary lookup, immune to name spelling (brand:wikidata tag)
-# name_regex   — fallback for entries not yet tagged with Wikidata IDs
 # ─────────────────────────────────────────────────────────────────────────────
 CATEGORIES = [
     {
@@ -33,8 +19,8 @@ CATEGORIES = [
         "emoji":       "\U0001f426",
         "color":       "#FFD700",
         "icon":        "bucees",
-        "wikidata_id": "Q4982335",  # confirmed correct ID
-        "name_regex":  None,  # wikidata ID confirmed correct, regex not needed
+        "wikidata_id": "Q4982335",
+        "name_regex":  None,
     },
     {
         "id":          "walmart",
@@ -43,7 +29,6 @@ CATEGORIES = [
         "color":       "#0071CE",
         "icon":        "walmart",
         "wikidata_id": "Q483551",
-        # Covers: Walmart, Wal-Mart, Walmart Supercenter, Walmart Neighborhood Market
         "name_regex":  "^Wal-?Mart|^Walmart",
     },
     {
@@ -52,11 +37,8 @@ CATEGORIES = [
         "emoji":       "\u26a1",
         "color":       "#E82127",
         "icon":        "tesla",
-        # Q17089620 = Tesla Supercharger network (confirmed from live OSM data)
-        # Q478214   = Tesla Inc (used in operator:wikidata on many stations)
         "wikidata_id": "Q17089620",
-        "operator_wikidata": "Q478214",
-        "name_regex":  None,  # wikidata ID confirmed correct; regex over-counts stalls
+        "name_regex":  None,
     },
     {
         "id":          "mr_carwash",
@@ -65,7 +47,6 @@ CATEGORIES = [
         "color":       "#00AEEF",
         "icon":        "carwash",
         "wikidata_id": "Q113753592",
-        # Covers: Mister Car Wash, Mr. Car Wash, Mr Car Wash, Mr. Carwash
         "name_regex":  "^M(iste)?r\\.? ?Car ?Wash",
     },
     {
@@ -83,7 +64,6 @@ CATEGORIES = [
         "emoji":       "\u2615",
         "color":       "#00704A",
         "icon":        "starbucks",
-        # Q37158 = Starbucks (confirmed Wikidata ID)
         "wikidata_id": "Q37158",
         "name_regex":  "^Starbucks",
     },
@@ -91,7 +71,6 @@ CATEGORIES = [
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
-# Region bounding boxes: (south, west, north, east)
 REGIONS = {
     "Entire USA":    (24.0, -125.0, 49.5,  -66.0),
     "Southeast":     (24.5,  -92.0, 37.0,  -75.0),
@@ -105,70 +84,37 @@ REGIONS = {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # QUERY BUILDER
-# Uses nwr (node/way/relation) shorthand to minimise clause count and avoid
-# Overpass timeouts. Each lookup is a single clause instead of three.
-# "out center tags;" returns centroid coords for polygon (way/relation) elements.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_queries(cat, bbox):
-    """
-    Returns a list of (label, query) tuples to run sequentially.
-    Results are merged and deduplicated before saving.
-    """
     s, w, n, e = bbox
     bb = f"({s},{w},{n},{e})"
     queries = []
 
     if cat["id"] == "rest_stop":
-        # highway=rest_area is the authoritative tag for proper highway rest areas.
-        # amenity=rest_area catches too many small picnic areas — exclude node type
-        # (nodes tend to be informal pull-offs; ways/relations are proper facilities).
         q = (
-            "[out:json][timeout:120];\n"
-            "(\n"
+            "[out:json][timeout:120];\n(\n"
             f"  way[\"highway\"=\"rest_area\"]{bb};\n"
             f"  relation[\"highway\"=\"rest_area\"]{bb};\n"
             f"  way[\"amenity\"=\"rest_area\"]{bb};\n"
             f"  relation[\"amenity\"=\"rest_area\"]{bb};\n"
-            ");\n"
-            "out center tags;"
+            ");\nout center tags;"
         )
-        queries.append(("rest_area ways+relations only", q))
+        queries.append(("rest_area ways+relations", q))
 
     elif cat["id"] == "tesla_supercharger":
-        # Two-part query: ways+relations (station polygons) + nodes with capacity tag.
-        # Test showed 162 nodes / 6 ways in Alabama. Nodes are individual stalls;
-        # ways are station-level areas. Station-level nodes have a capacity tag;
-        # individual stall nodes do not — so [capacity] filters stalls out.
-        q = (
-            "[out:json][timeout:120];\n"
-            "(\n"
-            f'  way["brand:wikidata"="Q17089620"]{bb};\n'
-            f'  relation["brand:wikidata"="Q17089620"]{bb};\n'
-            f'  node["brand:wikidata"="Q17089620"]["capacity"]{bb};\n'
-            ");\n"
-            "out center tags;"
-        )
-        queries.append(("way+relation+capacity-node", q))
+        q = f'[out:json][timeout:120];\nnwr["brand:wikidata"="Q17089620"]{bb};\nout center tags;'
+        queries.append(("brand:wikidata", q))
 
-    elif cat["id"] == "walmart":
-        # Two queries merged — combined was failing. Dedup handles overlap.
-        q1 = f'[out:json][timeout:120];\nnwr["brand:wikidata"="Q483551"]{bb};\nout center tags;'
+    elif cat["id"] in ("walmart", "starbucks"):
+        # High-volume brands — two separate queries to avoid Overpass timeouts
+        q1 = f'[out:json][timeout:120];\nnwr["brand:wikidata"="{cat["wikidata_id"]}"]{bb};\nout center tags;'
         queries.append(("brand:wikidata", q1))
-        q2 = f'[out:json][timeout:120];\nnwr["name"~"^Walmart",i]{bb};\nout center tags;'
-        queries.append(("name regex", q2))
-
-    elif cat["id"] == "starbucks":
-        # High-volume brand — run as two separate queries to avoid Overpass timeouts.
-        # wikidata Q37158 confirmed correct (440 results in Alabama test).
-        q1 = f'[out:json][timeout:120];\nnwr["brand:wikidata"="Q37158"]{bb};\nout center tags;'
-        queries.append(("brand:wikidata", q1))
-        q2 = f'[out:json][timeout:120];\nnwr["name"~"^Starbucks",i]{bb};\nout center tags;'
+        rx = cat["name_regex"]
+        q2 = f'[out:json][timeout:120];\nnwr["name"~"{rx}",i]{bb};\nout center tags;'
         queries.append(("name regex", q2))
 
     else:
-        # General: wikidata lookup only if name_regex is None (Buc-ee's, Tesla);
-        # combined wikidata + regex for others (Mister Car Wash etc.)
         clauses = []
         if cat["wikidata_id"]:
             clauses.append(f'nwr["brand:wikidata"="{cat["wikidata_id"]}"]{bb};')
@@ -184,8 +130,6 @@ def build_queries(cat, bbox):
     return queries
 
 
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # OVERPASS FETCH
 # ─────────────────────────────────────────────────────────────────────────────
@@ -194,7 +138,7 @@ def fetch_overpass(query, log_fn):
     data = urllib.parse.urlencode({"data": query}).encode()
     req  = urllib.request.Request(
         OVERPASS_URL, data=data,
-        headers={"User-Agent": "TeslaMapPOIUpdater/3.0 (personal use)"}
+        headers={"User-Agent": "TeslaMapPOIUpdater/5.0 (personal use)"}
     )
     log_fn("  Sending request to Overpass API...")
     with urllib.request.urlopen(req, timeout=150) as resp:
@@ -204,14 +148,14 @@ def fetch_overpass(query, log_fn):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ELEMENT -> GEOJSON FEATURE
+# ELEMENT → GEOJSON FEATURE
 # ─────────────────────────────────────────────────────────────────────────────
 
 def elements_to_features(elements, cat, log_fn=None):
-    features   = []
-    seen       = set()
+    features    = []
+    seen        = set()
     type_counts = {}
-    no_coords  = 0
+    skipped     = 0
 
     for el in elements:
         etype = el.get("type", "?")
@@ -222,33 +166,25 @@ def elements_to_features(elements, cat, log_fn=None):
         elif "center" in el:
             lat, lon = el["center"]["lat"], el["center"]["lon"]
         else:
-            no_coords += 1
-            continue
+            skipped += 1; continue
 
         if lat is None or lon is None:
-            no_coords += 1
-            continue
+            skipped += 1; continue
 
         tags = el.get("tags", {})
-
-        # Skip elements with no tags — sub-element nodes from way geometry
         if not tags:
-            no_coords += 1
-            continue
+            skipped += 1; continue
 
-        # Skip Walmart sub-departments mapped as separate OSM elements
-        # (Pharmacy, Garden Center, Vision Center etc. are inside a store, not a store)
         el_name = tags.get("name", "")
         if any(sub in el_name for sub in [
             "Pharmacy", "Garden Center", "Vision Center",
             "Auto Center", "Tire & Lube", "Deli", "Bakery",
         ]):
-            no_coords += 1
-            continue
+            skipped += 1; continue
 
-        key = (round(lat, 2), round(lon, 2))  # ~1.1km radius dedup — collapses node+way+relation for same store
+        key = (round(lat, 2), round(lon, 2))
         if key in seen:
-            continue
+            skipped += 1; continue
         seen.add(key)
 
         name = (tags.get("name") or tags.get("operator") or
@@ -274,10 +210,10 @@ def elements_to_features(elements, cat, log_fn=None):
 
     if log_fn:
         breakdown = ", ".join(f"{k}:{v}" for k, v in sorted(type_counts.items()))
-        log_fn(f"  Raw elements returned: {len(elements):,}  ({breakdown})")
-        if no_coords:
-            log_fn(f"  Skipped {no_coords} elements (no coords or no tags)")
-        log_fn(f"  Unique locations after dedup: {len(features):,}")
+        log_fn(f"  Raw elements: {len(elements):,}  ({breakdown})")
+        if skipped:
+            log_fn(f"  Skipped {skipped} (no coords, no tags, sub-dept, or dedup)")
+        log_fn(f"  Unique locations: {len(features):,}")
 
     return features
 
@@ -289,11 +225,11 @@ def elements_to_features(elements, cat, log_fn=None):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Tesla Map - POI Updater v3")
+        self.title("Tesla Map — POI Updater v5")
         self.resizable(True, True)
-        self.minsize(580, 640)
+        self.minsize(560, 620)
         self._build_ui()
-        self._center_window(620, 720)
+        self._center_window(620, 700)
 
     def _center_window(self, w, h):
         self.update_idletasks()
@@ -308,8 +244,7 @@ class App(tk.Tk):
         tk.Label(hdr, text="Tesla Map  \u00b7  POI Updater",
                  bg="#1a1a2e", fg="#e8f4ff",
                  font=("Helvetica", 16, "bold")).pack()
-        tk.Label(hdr,
-                 text="nwr shorthand queries  \u00b7  correct Wikidata IDs  \u00b7  anchored regexes",
+        tk.Label(hdr, text="Source: OpenStreetMap via Overpass API — no API key needed",
                  bg="#1a1a2e", fg="#6a8aaa", font=("Helvetica", 9)).pack()
 
         body = tk.Frame(self, padx=PAD, pady=PAD)
@@ -326,9 +261,8 @@ class App(tk.Tk):
         for cat in CATEGORIES:
             var = tk.BooleanVar(value=True)
             self.cat_vars[cat["id"]] = var
-            label = f"{cat['emoji']}  {cat['label']}"
-            tk.Checkbutton(body, text=label, variable=var,
-                           font=("Helvetica", 10)).grid(
+            tk.Checkbutton(body, text=f"{cat['emoji']}  {cat['label']}",
+                           variable=var, font=("Helvetica", 10)).grid(
                            row=row, column=0, columnspan=2,
                            sticky="w", padx=(10, 0))
             row += 1
@@ -355,8 +289,8 @@ class App(tk.Tk):
         self.outpath_var = tk.StringVar(value="pois.geojson")
         tk.Entry(ff, textvariable=self.outpath_var, width=30).pack(
             side="left", fill="x", expand=True)
-        tk.Button(ff, text="Browse...",
-                  command=self._browse).pack(side="left", padx=(4, 0))
+        tk.Button(ff, text="Browse...", command=self._browse).pack(
+            side="left", padx=(4, 0))
         row += 1
 
         ttk.Separator(body, orient="horizontal").grid(
@@ -371,8 +305,8 @@ class App(tk.Tk):
 
         self.status_var = tk.StringVar(value="Ready.")
         tk.Label(body, textvariable=self.status_var,
-                 font=("Helvetica", 9), fg="#555",
-                 anchor="w").grid(row=row, column=0, columnspan=2, sticky="w")
+                 font=("Helvetica", 9), fg="#555", anchor="w").grid(
+                 row=row, column=0, columnspan=2, sticky="w")
         row += 1
 
         self.log_box = scrolledtext.ScrolledText(
@@ -386,8 +320,7 @@ class App(tk.Tk):
         self.run_btn = tk.Button(
             body, text="\u2b07  Fetch & Save POIs",
             font=("Helvetica", 12, "bold"),
-            bg="#1e8cff", fg="white",
-            activebackground="#1567cc",
+            bg="#1e8cff", fg="white", activebackground="#1567cc",
             relief="flat", padx=16, pady=8,
             cursor="hand2", command=self._start)
         self.run_btn.grid(row=row, column=0, columnspan=2,
@@ -425,10 +358,8 @@ class App(tk.Tk):
         if not outpath:
             messagebox.showwarning("No output file", "Please choose an output file.")
             return
-
         self.run_btn.config(state="disabled", text="Working...")
         self._set_progress(0)
-
         bbox = REGIONS[self.region_var.get()]
         threading.Thread(target=self._run_fetch,
                          args=(selected, bbox, outpath),
@@ -442,11 +373,9 @@ class App(tk.Tk):
             for i, cat in enumerate(selected_cats):
                 self._log(f"\n{'─' * 52}")
                 self._log(f"Fetching: {cat['emoji']} {cat['label']}")
-                if cat["wikidata_id"]:
-                    self._log(f"  Wikidata: {cat['wikidata_id']}  +  name regex fallback")
                 self._set_status(f"Fetching {cat['label']}...")
 
-                queries = build_queries(cat, bbox)
+                queries      = build_queries(cat, bbox)
                 cat_elements = []
 
                 for q_label, query in queries:
@@ -457,30 +386,29 @@ class App(tk.Tk):
                         elements = result.get("elements", [])
                         cat_elements.extend(elements)
                         if len(queries) > 1:
-                            self._log(f"  Sub-query returned {len(elements):,} elements")
+                            self._log(f"  Returned {len(elements):,} elements")
                         if queries.index((q_label, query)) < len(queries) - 1:
-                            time.sleep(2)  # pause between sub-queries
-                    except urllib.error.HTTPError as e:
-                        self._log(f"  HTTP {e.code}: {e.reason}")
-                        if e.code == 504:
+                            time.sleep(2)
+                    except urllib.error.HTTPError as ex:
+                        self._log(f"  HTTP {ex.code}: {ex.reason}")
+                        if ex.code == 504:
                             self._log("  (Gateway timeout — Overpass busy, try again later)")
-                    except urllib.error.URLError as e:
-                        self._log(f"  Network error: {e.reason}")
-                    except Exception as e:
-                        self._log(f"  Error: {e}")
+                    except urllib.error.URLError as ex:
+                        self._log(f"  Network error: {ex.reason}")
+                    except Exception as ex:
+                        self._log(f"  Error: {ex}")
 
                 features = elements_to_features(cat_elements, cat, self._log)
                 all_features.extend(features)
-
                 self._set_progress(int((i + 1) / total * 90))
 
                 if i < total - 1:
-                    self._log("  Waiting 3s before next request...")
+                    self._log("  Waiting 3s...")
                     time.sleep(3)
 
-            # Write output
+            # Write GeoJSON
             self._log(f"\n{'─' * 52}")
-            self._log(f"Writing {len(all_features):,} total features to:")
+            self._log(f"Writing {len(all_features):,} features to:")
             self._log(f"  {outpath}")
 
             geojson = {
@@ -499,17 +427,18 @@ class App(tk.Tk):
             for feat in all_features:
                 cid = feat["properties"]["category"]
                 counts[cid] = counts.get(cid, 0) + 1
-
             for cat in selected_cats:
-                n = counts.get(cat["id"], 0)
-                bar = "\u2588" * min(n // 5, 40)
-                self._log(f"  {cat['emoji']} {cat['label']:25s}  {n:>5,}  {bar}")
+                n   = counts.get(cat["id"], 0)
+                bar = "\u2588" * min(n // 10, 35)
+                self._log(f"  {cat['emoji']} {cat['label']:25s}  {n:>6,}  {bar}")
 
             self._log(f"\n  Upload '{outpath}' to your GitHub repo.")
             self._set_status(f"Done — {len(all_features):,} POIs saved.")
 
-        except Exception as e:
-            self._log(f"\nUnexpected error: {e}")
+        except Exception as ex:
+            self._log(f"\nUnexpected error: {ex}")
+            import traceback
+            self._log(traceback.format_exc())
             self._set_status("Error — see log.")
         finally:
             self.after(0, lambda: self.run_btn.config(
