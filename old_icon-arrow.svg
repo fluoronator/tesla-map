@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+  <!-- Accuracy halo -->
+  <circle cx="40" cy="40" r="20"
+          fill="rgba(30,140,255,0.18)"
+          stroke="rgba(30,140,255,0.5)"
+          stroke-width="2"/>
+  <!-- Arrow body — tip points UP (north in SVG = direction of travel) -->
+  <polygon points="40,8 54,62 40,50 26,62"
+           fill="#1e8cff"
+           stroke="#ffffff"
+           stroke-width="2.5"
+           stroke-linejoin="round"/>
+  <!-- Centre dot -->
+  <circle cx="40" cy="40" r="5.5" fill="#ffffff"/>
+</svg>
