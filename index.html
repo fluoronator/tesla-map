@@ -86,19 +86,29 @@
 
     /* ── Category toggle buttons ─────────────────────────── */
     #cat-toggles {
-      position: fixed; top: 68px; right: 18px; z-index: 1000;
-      display: flex; flex-direction: column; gap: 6px;
+      position: fixed; top: 68px; right: 12px; z-index: 1000;
+      display: flex; flex-direction: column; gap: 5px;
     }
     .cat-btn {
-      width: 44px; height: 44px; border-radius: 10px;
-      border: 2px solid rgba(255,255,255,0.25);
-      background: rgba(0,0,0,0.75);
-      display: flex; align-items: center; justify-content: center;
+      height: 38px; border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.22);
+      background: rgba(0,0,0,0.78);
+      display: flex; align-items: center; justify-content: flex-start;
+      gap: 7px; padding: 0 10px 0 7px;
       cursor: pointer; backdrop-filter: blur(6px);
       -webkit-tap-highlight-color: transparent;
-      opacity: 0.45;
+      opacity: 0.45; white-space: nowrap;
+      min-width: 44px;
     }
-    .cat-btn.active { opacity: 1; border-color: rgba(255,255,255,0.7); }
+    .cat-btn.active { opacity: 1; border-color: rgba(255,255,255,0.65); }
+    .cat-btn img { width: 24px; height: 24px; flex-shrink: 0; }
+    .cat-dist {
+      font-size: 12px; font-weight: 600; color: #e8f4ff;
+      font-variant-numeric: tabular-nums;
+      font-family: 'Courier New', monospace;
+      min-width: 44px; text-align: right;
+    }
+    .cat-dist.no-data { color: rgba(255,255,255,0.3); font-weight: 400; }
 
 
 
@@ -255,14 +265,7 @@
     });
   }
 
-  // For toggle buttons: small inline SVG image
-  function makeToggleBtnHtml(catId) {
-    const sz  = 24;
-    const url = `icon-${catId}.svg`;
-    return `<img src="${url}" width="${sz}" height="${sz}"
-                 style="display:block"
-                 onerror="this.style.opacity='0.3'">`;
-  }
+
 
   /* ═══════════════════════════════════════════════════════
      MAP
@@ -365,6 +368,10 @@
      Uses chunked processing so the browser stays
      responsive while parsing thousands of features.
   ═══════════════════════════════════════════════════════ */
+  // Flat array of {catId, lat, lon} for all POIs — used by nearest-distance calc.
+  // Populated during chunked loading; read-only after that.
+  const poiCoords = [];
+
   function loadPOIs(geojson) {
     const features = geojson.features || [];
     const total    = features.length;
@@ -381,6 +388,10 @@
         if (!group) continue;
 
         const [lon, lat] = feat.geometry.coordinates;
+
+        // Store for nearest-distance lookup (no objects — just numbers for speed)
+        poiCoords.push({ c: catId, a: lat, o: lon });
+
         const marker = L.marker([lat, lon], { icon: makePoiIcon(catId) });
         marker.bindTooltip(props.name || catId, {
           className: 'poi-tooltip',
@@ -421,6 +432,50 @@
     });
   }
 
+  /* ── Nearest POI distance ────────────────────────────────────────────────
+     Called once per GPS fix. Iterates poiCoords once, tracking the minimum
+     distance per category. Haversine formula, result in miles.
+     ~8000 iterations of simple arithmetic — takes <1ms on any modern CPU.
+  ──────────────────────────────────────────────────────────────────────── */
+  function haversineMiles(lat1, lon1, lat2, lon2) {
+    const R  = 3958.8;  // Earth radius in miles
+    const d  = Math.PI / 180;
+    const dLat = (lat2 - lat1) * d;
+    const dLon = (lon2 - lon1) * d;
+    const a  = Math.sin(dLat/2) ** 2 +
+               Math.cos(lat1*d) * Math.cos(lat2*d) * Math.sin(dLon/2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  function updateNearestDistances(lat, lon) {
+    if (poiCoords.length === 0) return;
+
+    // Track minimum distance per category
+    const nearest = {};
+    for (const p of poiCoords) {
+      const d = haversineMiles(lat, lon, p.a, p.o);
+      if (nearest[p.c] === undefined || d < nearest[p.c]) {
+        nearest[p.c] = d;
+      }
+    }
+
+    // Update distance labels in the toggle panel
+    for (const [catId] of Object.entries(POI_CATEGORIES)) {
+      const el  = document.getElementById(`dist-${catId}`);
+      if (!el) continue;
+      const d = nearest[catId];
+      if (d === undefined) {
+        el.textContent = '—';
+        el.className   = 'cat-dist no-data';
+      } else {
+        el.textContent = d < 10
+          ? `${d.toFixed(1)} mi`
+          : `${Math.round(d)} mi`;
+        el.className = 'cat-dist';
+      }
+    }
+  }
+
   function fetchPOIs() {
     fetch(CFG.geojsonUrl)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
@@ -439,8 +494,23 @@
     Object.entries(POI_CATEGORIES).forEach(([id, cat]) => {
       const btn = document.createElement('button');
       btn.className = 'cat-btn' + (cat.visible ? ' active' : '');
-      btn.title     = cat.label;
-      btn.innerHTML = makeToggleBtnHtml(id);
+      btn.title = cat.label;
+
+      // Icon image
+      const img = document.createElement('img');
+      img.src    = `icon-${id}.svg`;
+      img.width  = 24; img.height = 24;
+      img.style.display = 'block';
+
+      // Distance label — updated by updateNearestDistances()
+      const dist = document.createElement('span');
+      dist.className   = 'cat-dist no-data';
+      dist.textContent = '—';
+      dist.id          = `dist-${id}`;
+
+      btn.appendChild(img);
+      btn.appendChild(dist);
+
       btn.addEventListener('click', () => {
         cat.visible = !cat.visible;
         btn.classList.toggle('active', cat.visible);
@@ -522,6 +592,8 @@
       map.setView([latitude, longitude], firstFix ? CFG.defaultZoom : map.getZoom());
     firstFix = false;
     updateArrowScale();
+
+    updateNearestDistances(latitude, longitude);
 
     el('hud-speed').textContent    = `${Math.round(currentSpeedMph)} mph`;
     el('hud-heading').textContent  = `${Math.round(targetHeading)}° ${headingToCardinal(targetHeading)}`;
