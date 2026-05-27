@@ -52,7 +52,7 @@
     /* ── Compass ─────────────────────────────────────────── */
     #north-arrow {
       position: fixed; top: 14px; right: 18px; z-index: 1000;
-      width: 44px; height: 44px;
+      width: 80px; height: 80px;
       background: rgba(0,0,0,0.72);
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 50%; backdrop-filter: blur(6px);
@@ -67,23 +67,23 @@
       display: flex; flex-direction: column; gap: 5px;
     }
     .cat-btn {
-      height: 54px; border-radius: 12px;
+      height: 80px; border-radius: 16px;
       border: 2px solid rgba(255,255,255,0.22);
       background: rgba(0,0,0,0.78);
       display: flex; align-items: center; justify-content: flex-start;
-      gap: 10px; padding: 0 14px 0 10px;
+      gap: 14px; padding: 0 18px 0 14px;
       cursor: pointer; backdrop-filter: blur(6px);
       -webkit-tap-highlight-color: transparent;
       opacity: 0.45; white-space: nowrap;
-      min-width: 54px;
+      min-width: 80px;
     }
     .cat-btn.active { opacity: 1; border-color: rgba(255,255,255,0.65); }
-    .cat-btn img { width: 36px; height: 36px; flex-shrink: 0; }
+    .cat-btn img { width: 56px; height: 56px; flex-shrink: 0; }
     .cat-dist {
-      font-size: 18px; font-weight: 700; color: #e8f4ff;
+      font-size: 26px; font-weight: 700; color: #e8f4ff;
       font-variant-numeric: tabular-nums;
       font-family: 'Courier New', monospace;
-      min-width: 58px; text-align: right;
+      min-width: 72px; text-align: right;
     }
     .cat-dist.no-data { color: rgba(255,255,255,0.3); font-weight: 400; }
 
@@ -136,7 +136,7 @@
 
 
   <div id="north-arrow">
-    <svg id="compass-svg" width="28" height="28" viewBox="0 0 28 28">
+    <svg id="compass-svg" width="56" height="56" viewBox="0 0 28 28">
       <polygon points="14,2 18,14 14,12 10,14" fill="#ff3b30"/>
       <polygon points="14,26 18,14 14,16 10,14" fill="#666"/>
       <text x="14" y="11" text-anchor="middle" fill="#fff"
@@ -164,7 +164,7 @@
     tileAttr: 'Tiles &copy; Esri',
     gpsMaxAge:    1000,
     panReturnSec: 5,
-    arrowPx:      48,
+    arrowPx:      80,
     geojsonUrl:   'pois.geojson',
     // Clusters dissolve into individual pins at this zoom level
     clusterMaxZoom: 11,
@@ -190,7 +190,7 @@
   // Returns a Leaflet divIcon using an <img> tag pointing to the SVG file.
   // The browser caches the SVG after first load so subsequent markers are free.
   function makePoiIcon(catId) {
-    const sz  = 36;   // matches toggle button icon size
+    const sz  = 56;   // matches toggle button icon size
     const url = `icon-${catId}.svg`;
     return L.divIcon({
       className: 'poi-icon',
@@ -434,7 +434,7 @@
       // Icon image
       const img = document.createElement('img');
       img.src    = `icon-${id}.svg`;
-      img.width  = 36; img.height = 36;
+      img.width  = 56; img.height = 56;
       img.style.display = 'block';
 
       // Distance label — updated by updateNearestDistances()
@@ -650,15 +650,15 @@
      ZOOM BUTTONS
   ═══════════════════════════════════════════════════════ */
   function addZoomButtons() {
-    const base = `position:fixed;right:18px;z-index:1000;width:64px;height:64px;
-      border-radius:12px;background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.2);
-      color:#fff;font-size:36px;font-weight:300;cursor:pointer;backdrop-filter:blur(6px);
+    const base = `position:fixed;right:18px;z-index:1000;width:90px;height:90px;
+      border-radius:16px;background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.2);
+      color:#fff;font-size:48px;font-weight:300;cursor:pointer;backdrop-filter:blur(6px);
       display:flex;align-items:center;justify-content:center;
       -webkit-tap-highlight-color:transparent;`;
     const zIn  = document.createElement('button');
     const zOut = document.createElement('button');
     zIn.style.cssText  = base + 'bottom:30px;';
-    zOut.style.cssText = base + 'bottom:104px;';
+    zOut.style.cssText = base + 'bottom:130px;';
     zIn.textContent = '+'; zOut.textContent = '−';
     zIn.addEventListener('click',  () => map.setZoom(map.getZoom() + 1));
     zOut.addEventListener('click', () => map.setZoom(map.getZoom() - 1));
