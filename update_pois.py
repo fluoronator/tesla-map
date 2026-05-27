@@ -158,6 +158,14 @@ def build_queries(cat, bbox):
         q2 = f'[out:json][timeout:120];\nnwr["name"~"^Walmart",i]{bb};\nout center tags;'
         queries.append(("name regex", q2))
 
+    elif cat["id"] == "starbucks":
+        # High-volume brand — run as two separate queries to avoid Overpass timeouts.
+        # wikidata Q37158 confirmed correct (440 results in Alabama test).
+        q1 = f'[out:json][timeout:120];\nnwr["brand:wikidata"="Q37158"]{bb};\nout center tags;'
+        queries.append(("brand:wikidata", q1))
+        q2 = f'[out:json][timeout:120];\nnwr["name"~"^Starbucks",i]{bb};\nout center tags;'
+        queries.append(("name regex", q2))
+
     else:
         # General: wikidata lookup only if name_regex is None (Buc-ee's, Tesla);
         # combined wikidata + regex for others (Mister Car Wash etc.)
