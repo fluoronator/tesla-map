@@ -100,17 +100,7 @@
     }
     .cat-btn.active { opacity: 1; border-color: rgba(255,255,255,0.7); }
 
-    /* ── Re-centre ───────────────────────────────────────── */
-    #recenter-btn {
-      position: fixed; bottom: 100px; left: 18px; z-index: 1000;
-      width: 52px; height: 52px; border-radius: 50%;
-      background: rgba(30,140,255,0.9);
-      border: 2px solid rgba(255,255,255,0.3);
-      color: #fff; font-size: 22px;
-      display: none; align-items: center; justify-content: center;
-      cursor: pointer; -webkit-tap-highlight-color: transparent;
-    }
-    #recenter-btn.visible { display: flex; }
+
 
     /* ── Pan banner ──────────────────────────────────────── */
     #pan-banner {
@@ -150,6 +140,14 @@
       color: rgba(255,255,200,0.6); font-size: 9px; font-family: monospace;
     }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* ── POI icon counter-rotation ──────────────────────── */
+    /* --map-rot is set on :root each rAF frame (in degrees).
+       Counter-rotating by the same amount keeps icons upright. */
+    .poi-icon img {
+      transform: rotate(var(--map-rot, 0deg));
+      transform-origin: center center;
+    }
 
     /* ── POI tooltip ─────────────────────────────────────── */
     .poi-tooltip {
@@ -196,7 +194,6 @@
 
   <div id="cat-toggles"></div>
 
-  <button id="recenter-btn" title="Return to my location">⊕</button>
   <div id="pan-banner">Exploring — returning in <span id="pan-countdown">5</span>s</div>
 
   <div id="status-bar">
@@ -486,6 +483,10 @@
     const arrowSvg = document.getElementById('arrow-svg');
     if (arrowSvg) arrowSvg.style.transform = `scale(${1/arrowScale}) rotate(${displayHeading}deg)`;
 
+    // Set CSS custom property so POI icons counter-rotate and stay upright.
+    // One property update per frame — GPU handles the per-element compositing.
+    document.documentElement.style.setProperty('--map-rot', `${displayHeading.toFixed(2)}deg`);
+
     document.getElementById('debug-row').textContent =
       `gps_hdg:${lastGoodHeading.toFixed(1)}° | speed:${currentSpeedMph.toFixed(1)}mph` +
       ` | display:${displayHeading.toFixed(1)}°`;
@@ -557,7 +558,6 @@
   function enterPanMode() {
     if (isPanning) { resetPanTimer(); return; }
     isPanning = true;
-    el('recenter-btn').classList.add('visible');
     el('pan-banner').classList.add('visible');
     resetPanTimer();
   }
@@ -575,7 +575,6 @@
   function returnToLocation() {
     clearTimeout(panReturnTimer); clearInterval(panCountdownInterval);
     isPanning = false;
-    el('recenter-btn').classList.remove('visible');
     el('pan-banner').classList.remove('visible');
     map.setView([currentLat, currentLng], map.getZoom());
   }
@@ -655,7 +654,6 @@
     onDragEnd();
   });
 
-  el('recenter-btn').addEventListener('click', returnToLocation);
 
   /* ═══════════════════════════════════════════════════════
      ZOOM BUTTONS
