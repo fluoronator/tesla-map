@@ -616,7 +616,7 @@
     // Rotate the screen delta into map coordinate space.
     // The map is rotated by -displayHeading, so we rotate the drag vector
     // by -displayHeading as well to compensate.
-    const rotated = rotateVector(screenDx, screenDy, -displayHeading);
+    const rotated = rotateVector(screenDx, screenDy, displayHeading);
     map.panBy([rotated.x, rotated.y], { animate: false });
     resetPanTimer();
   }
