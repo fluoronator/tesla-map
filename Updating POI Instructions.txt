@@ -7,3 +7,6 @@ Go to https://supercharge.info/service/supercharge/allSites to get superchargers
 
 Give both the pois.geojson, superchargers.geojson and the starbucks.csv file to Claude to merge them togeather. Also tell claude to scrape bucee's locations from their webpage.
 Copy the new geojson file to the github project root.
+
+To make SVG icons from images...
+https://www.autotracer.org/
