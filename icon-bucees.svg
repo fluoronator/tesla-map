@@ -1,5 +1,5 @@
 <?xml version="1.0" standalone="yes"?>
-<svg  viewBox="8.5 0.0 263 263"xmlns="http://www.w3.org/2000/svg" width="263" height="263">
+<svg xmlns="http://www.w3.org/2000/svg" width="263" height="263" viewBox="8.5 0 263 263">
 <defs>
   <clipPath id="circle-clip">
     <circle cx="140.0" cy="131.5" r="129.5"/>
