@@ -102,7 +102,7 @@
 
     /* ── Re-centre ───────────────────────────────────────── */
     #recenter-btn {
-      position: fixed; bottom: 90px; right: 18px; z-index: 1000;
+      position: fixed; bottom: 100px; left: 18px; z-index: 1000;
       width: 52px; height: 52px; border-radius: 50%;
       background: rgba(30,140,255,0.9);
       border: 2px solid rgba(255,255,255,0.3);
@@ -308,11 +308,13 @@
     fillOpacity: 0.06, weight: 1, opacity: 0.35, interactive: false,
   }).addTo(map);
 
+  // arrowScale tracks the Leaflet pane scale so rotationLoop can combine
+  // scale + counter-rotation into a single transform on the arrow SVG.
+  let arrowScale = 1;
   function updateArrowScale() {
-    const svg = document.getElementById('arrow-svg');
-    if (!svg) return;
     const mat = new DOMMatrix(window.getComputedStyle(map.getPanes().markerPane).transform);
-    svg.style.transform = `scale(${1 / (mat.a || 1)})`;
+    arrowScale = mat.a || 1;
+    // Transform is applied each rAF frame in rotationLoop — no direct set here
   }
   map.on('zoom zoomend zoomstart move', updateArrowScale);
 
@@ -470,10 +472,20 @@
     targetHeading  = lastGoodHeading;
     displayHeading = lerpAngle(displayHeading, targetHeading, 0.08);
     const r = -displayHeading;
+
+    // Map wrapper rotates so heading = screen-up
     const wrapper = document.getElementById('map-wrapper');
-    const compass = document.getElementById('compass-svg');
     if (wrapper) wrapper.style.transform = `translate(-50%,-50%) rotate(${r}deg)`;
+
+    // Compass: N marker tracks true north = same rotation as map
+    const compass = document.getElementById('compass-svg');
     if (compass) compass.style.transform = `rotate(${r}deg)`;
+
+    // Arrow: lives inside the rotating wrapper so it rotates with the map.
+    // Counter-rotate by +displayHeading so it always points screen-up = travel direction.
+    const arrowSvg = document.getElementById('arrow-svg');
+    if (arrowSvg) arrowSvg.style.transform = `scale(${1/arrowScale}) rotate(${displayHeading}deg)`;
+
     document.getElementById('debug-row').textContent =
       `gps_hdg:${lastGoodHeading.toFixed(1)}° | speed:${currentSpeedMph.toFixed(1)}mph` +
       ` | display:${displayHeading.toFixed(1)}°`;
@@ -567,8 +579,82 @@
     el('pan-banner').classList.remove('visible');
     map.setView([currentLat, currentLng], map.getZoom());
   }
-  map.on('dragstart', enterPanMode);
-  map.on('drag', resetPanTimer);
+  /* ── Rotated panning ──────────────────────────────────────────────────
+     Leaflet drag works in its own (unrotated) coordinate space. When the
+     map is rotated, a screen-up drag should pan toward screen-up — but
+     Leaflet pans toward map-up (which is the heading direction, not north).
+     Fix: disable Leaflet drag, handle touch ourselves, rotate the delta
+     vector by -displayHeading before passing to map.panBy().
+  ──────────────────────────────────────────────────────────────────── */
+  map.dragging.disable();
+
+  let dragStartX = null, dragStartY = null;
+  let lastDragX  = null, lastDragY  = null;
+
+  function rotateVector(dx, dy, angleDeg) {
+    // Rotate a screen-space vector into map-space by angleDeg
+    const rad = angleDeg * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    return {
+      x: dx * cos - dy * sin,
+      y: dx * sin + dy * cos,
+    };
+  }
+
+  function onDragStart(x, y) {
+    dragStartX = x; dragStartY = y;
+    lastDragX  = x; lastDragY  = y;
+    enterPanMode();
+  }
+
+  function onDragMove(x, y) {
+    if (lastDragX === null) return;
+    const screenDx = lastDragX - x;   // positive = dragged left = map moves right
+    const screenDy = lastDragY - y;
+    lastDragX = x; lastDragY = y;
+
+    // Rotate the screen delta into map coordinate space.
+    // The map is rotated by -displayHeading, so we rotate the drag vector
+    // by -displayHeading as well to compensate.
+    const rotated = rotateVector(screenDx, screenDy, -displayHeading);
+    map.panBy([rotated.x, rotated.y], { animate: false });
+    resetPanTimer();
+  }
+
+  function onDragEnd() {
+    dragStartX = null; lastDragX = null;
+  }
+
+  // Touch events (primary — Tesla touchscreen)
+  const mapEl = document.getElementById('map-wrapper');
+  mapEl.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) {
+      onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: true });
+
+  mapEl.addEventListener('touchmove', e => {
+    if (e.touches.length === 1) {
+      onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: true });
+
+  mapEl.addEventListener('touchend', onDragEnd, { passive: true });
+
+  // Mouse events (for desktop testing)
+  let mouseDown = false;
+  mapEl.addEventListener('mousedown', e => {
+    mouseDown = true;
+    onDragStart(e.clientX, e.clientY);
+  });
+  window.addEventListener('mousemove', e => {
+    if (mouseDown) onDragMove(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', () => {
+    mouseDown = false;
+    onDragEnd();
+  });
+
   el('recenter-btn').addEventListener('click', returnToLocation);
 
   /* ═══════════════════════════════════════════════════════
