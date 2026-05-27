@@ -47,7 +47,30 @@
       font-family: 'Courier New', monospace !important;
     }
 
-
+    /* ── HUD ──────────────────────────────────────────────── */
+    #hud {
+      position: fixed; top: 0; left: 0; z-index: 1000;
+      padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 5px;
+      pointer-events: none;
+    }
+    .hud-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: rgba(0,0,0,0.72);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px; padding: 5px 11px;
+      backdrop-filter: blur(6px);
+      color: #fff; font-size: 12px; line-height: 1.3;
+      width: fit-content;
+    }
+    .hud-pill .label {
+      color: rgba(255,255,255,0.4); font-size: 9px;
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .hud-pill .value {
+      font-size: 14px; font-weight: 600; color: #e8f4ff;
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ── Compass ─────────────────────────────────────────── */
     #north-arrow {
@@ -67,23 +90,23 @@
       display: flex; flex-direction: column; gap: 5px;
     }
     .cat-btn {
-      height: 54px; border-radius: 12px;
+      height: 38px; border-radius: 10px;
       border: 2px solid rgba(255,255,255,0.22);
       background: rgba(0,0,0,0.78);
       display: flex; align-items: center; justify-content: flex-start;
-      gap: 10px; padding: 0 14px 0 10px;
+      gap: 7px; padding: 0 10px 0 7px;
       cursor: pointer; backdrop-filter: blur(6px);
       -webkit-tap-highlight-color: transparent;
       opacity: 0.45; white-space: nowrap;
-      min-width: 54px;
+      min-width: 44px;
     }
     .cat-btn.active { opacity: 1; border-color: rgba(255,255,255,0.65); }
-    .cat-btn img { width: 36px; height: 36px; flex-shrink: 0; }
+    .cat-btn img { width: 24px; height: 24px; flex-shrink: 0; }
     .cat-dist {
-      font-size: 18px; font-weight: 700; color: #e8f4ff;
+      font-size: 12px; font-weight: 600; color: #e8f4ff;
       font-variant-numeric: tabular-nums;
       font-family: 'Courier New', monospace;
-      min-width: 58px; text-align: right;
+      min-width: 44px; text-align: right;
     }
     .cat-dist.no-data { color: rgba(255,255,255,0.3); font-weight: 400; }
 
@@ -104,6 +127,28 @@
     }
     #pan-banner.visible { opacity: 1; }
 
+    /* ── Status bar ──────────────────────────────────────── */
+    #status-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
+      background: rgba(0,0,0,0.85);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      padding: 5px 18px;
+      display: flex; flex-direction: column; gap: 2px;
+      color: rgba(255,255,255,0.5); font-size: 10px;
+      pointer-events: none;
+    }
+    #status-row1 { display: flex; justify-content: space-between; align-items: center; }
+    #status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #666; display: inline-block; margin-right: 6px;
+      transition: background 0.4s;
+    }
+    #status-dot.acquiring { background: #f5a623; animation: pulse 1s infinite; }
+    #status-dot.active    { background: #4cd964; }
+    #status-dot.error     { background: #ff3b30; }
+    #debug-row {
+      color: rgba(255,255,200,0.6); font-size: 9px; font-family: monospace;
+    }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
     /* ── POI icon counter-rotation ──────────────────────── */
@@ -133,7 +178,20 @@
 
   <div id="map-wrapper"><div id="map"></div></div>
 
-
+  <div id="hud">
+    <div class="hud-pill">
+      <span class="label">Speed</span>
+      <span class="value" id="hud-speed">— mph</span>
+    </div>
+    <div class="hud-pill">
+      <span class="label">Heading</span>
+      <span class="value" id="hud-heading">—</span>
+    </div>
+    <div class="hud-pill">
+      <span class="label">Accuracy</span>
+      <span class="value" id="hud-accuracy">—</span>
+    </div>
+  </div>
 
   <div id="north-arrow">
     <svg id="compass-svg" width="28" height="28" viewBox="0 0 28 28">
@@ -148,7 +206,13 @@
 
   <div id="pan-banner">Exploring — returning in <span id="pan-countdown">5</span>s</div>
 
-
+  <div id="status-bar">
+    <div id="status-row1">
+      <span><span id="status-dot" class="acquiring"></span><span id="status-text">Acquiring GPS…</span></span>
+      <span id="status-coords">—</span>
+    </div>
+    <div id="debug-row">gps_hdg: — | speed: — | display: —</div>
+  </div>
 
   <script>
   /* ═══════════════════════════════════════════════════════
@@ -340,7 +404,8 @@
       }
 
       // Update status with progress
-
+      document.getElementById('status-text').textContent =
+        `Loading POIs… ${loaded.toLocaleString()} / ${total.toLocaleString()}`;
 
       if (end < total) {
         // Yield to browser between chunks so UI stays responsive
@@ -348,7 +413,8 @@
       } else {
         // All done — add visible groups to map
         applyToggleState();
-
+        document.getElementById('status-text').textContent =
+          `GPS active — ${total.toLocaleString()} POIs loaded`;
       }
     }
 
@@ -417,7 +483,7 @@
       .then(loadPOIs)
       .catch(err => {
         console.warn('POI load failed:', err);
-
+        document.getElementById('status-text').textContent = 'POI file not found';
       });
   }
 
@@ -434,7 +500,7 @@
       // Icon image
       const img = document.createElement('img');
       img.src    = `icon-${id}.svg`;
-      img.width  = 36; img.height = 36;
+      img.width  = 24; img.height = 24;
       img.style.display = 'block';
 
       // Distance label — updated by updateNearestDistances()
@@ -492,7 +558,9 @@
     // One property update per frame — GPU handles the per-element compositing.
     document.documentElement.style.setProperty('--map-rot', `${displayHeading.toFixed(2)}deg`);
 
-
+    document.getElementById('debug-row').textContent =
+      `gps_hdg:${lastGoodHeading.toFixed(1)}° | speed:${currentSpeedMph.toFixed(1)}mph` +
+      ` | display:${displayHeading.toFixed(1)}°`;
     requestAnimationFrame(rotationLoop);
   }
 
@@ -505,7 +573,11 @@
 
   const el = id => document.getElementById(id);
 
-
+  function mpsToMph(mps) { return (mps == null || isNaN(mps)) ? 0 : mps * 2.23694; }
+  function headingToCardinal(deg) {
+    const d = ['N','NE','E','SE','S','SW','W','NW'];
+    return d[Math.round(((deg%360)+360)%360/45)%8];
+  }
 
   function onPosition(pos) {
     const { latitude, longitude, accuracy, heading, speed } = pos.coords;
@@ -524,18 +596,26 @@
 
     updateNearestDistances(latitude, longitude);
 
-
+    el('hud-speed').textContent    = `${Math.round(currentSpeedMph)} mph`;
+    el('hud-heading').textContent  = `${Math.round(targetHeading)}° ${headingToCardinal(targetHeading)}`;
+    el('hud-accuracy').textContent = accuracy != null ? `±${Math.round(accuracy)} m` : '—';
+    el('status-coords').textContent = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    el('status-dot').className = 'active';
+    if (el('status-text').textContent === 'Acquiring GPS…')
+      el('status-text').textContent = 'GPS active';
   }
 
   function onError(err) {
-    console.warn('GPS error', err.code, err.message);
+    el('status-dot').className    = 'error';
+    el('status-text').textContent = `GPS error (${err.code}): ${err.message}`;
   }
 
   const gpsOpts = { enableHighAccuracy: true, timeout: 10000, maximumAge: CFG.gpsMaxAge };
 
   function startGPS() {
     if (!navigator.geolocation) {
-      console.warn('Geolocation not supported');
+      el('status-dot').className    = 'error';
+      el('status-text').textContent = 'Geolocation not supported';
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -652,15 +732,15 @@
      ZOOM BUTTONS
   ═══════════════════════════════════════════════════════ */
   function addZoomButtons() {
-    const base = `position:fixed;right:18px;z-index:1000;width:64px;height:64px;
-      border-radius:12px;background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.2);
-      color:#fff;font-size:36px;font-weight:300;cursor:pointer;backdrop-filter:blur(6px);
+    const base = `position:fixed;right:18px;z-index:1000;width:44px;height:44px;
+      border-radius:8px;background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.2);
+      color:#fff;font-size:24px;font-weight:300;cursor:pointer;backdrop-filter:blur(6px);
       display:flex;align-items:center;justify-content:center;
       -webkit-tap-highlight-color:transparent;`;
     const zIn  = document.createElement('button');
     const zOut = document.createElement('button');
-    zIn.style.cssText  = base + 'bottom:30px;';
-    zOut.style.cssText = base + 'bottom:104px;';
+    zIn.style.cssText  = base + 'bottom:86px;';
+    zOut.style.cssText = base + 'bottom:136px;';
     zIn.textContent = '+'; zOut.textContent = '−';
     zIn.addEventListener('click',  () => map.setZoom(map.getZoom() + 1));
     zOut.addEventListener('click', () => map.setZoom(map.getZoom() - 1));
