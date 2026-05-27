@@ -190,7 +190,7 @@
   // Returns a Leaflet divIcon using an <img> tag pointing to the SVG file.
   // The browser caches the SVG after first load so subsequent markers are free.
   function makePoiIcon(catId) {
-    const sz  = 30;
+    const sz  = 36;   // matches toggle button icon size
     const url = `icon-${catId}.svg`;
     return L.divIcon({
       className: 'poi-icon',
