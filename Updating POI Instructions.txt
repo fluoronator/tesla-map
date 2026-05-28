@@ -8,5 +8,7 @@ Go to https://supercharge.info/service/supercharge/allSites to get superchargers
 Give both the pois.geojson, superchargers.geojson and the starbucks.csv file to Claude to merge them togeather. Also tell claude to scrape bucee's locations from their webpage.
 Copy the new geojson file to the github project root.
 
+Edit: Run fix_bucees.py after updating pois.geojson. This tool will use better coords from OSM if they exist but will keep the address generated coords is the location is missing from OSM.
+
 To make SVG icons from images...
 https://www.autotracer.org/
